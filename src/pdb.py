@@ -341,6 +341,23 @@ class EditPDB:
 			outfile.write(line)
 		outfile.close()
 
+	def _pull_bfactor(self):
+		self._get_pdb()
+		lines_out = {}
+		for line in self.pdb:
+			if line[0:6] == "ATOM  ":
+				resnum = line[23:26].strip()
+				b_factor = line[60:66].strip()
+				lines_out[resnum] = resnum + '\t' + b_factor + '\n'
+		return lines_out
+
+	def _sort_keys(self, input_dict):
+		temp_list = []
+		for key in input_dict:
+			temp_list.append(int(key))
+		temp_list.sort()
+		return temp_list
+
 	def edit_bfactor_sasa(self):
 		lines = self._edit_bfactor("_sasa")
 		self._write_output(lines, "_sasa.pdb")
@@ -352,6 +369,17 @@ class EditPDB:
 	def edit_bfactor_surface_residues(self):
 		lines = self._edit_bfactor("_SurfRes")
 		self._write_output(lines, "_SurfRes.pdb")
+
+	def write_bfactor(self):
+		lines = self._pull_bfactor()
+		sorted_list = self._sort_keys(lines)
+		os.chdir('./database/pdbs/pdb')
+		output_file = os.getcwd() + "/" + self.filename + '_pulled_bfactors.txt'
+		outfile = open(output_file, 'w')
+		for resnum in sorted_list:
+			outfile.write(lines[str(resnum)])
+		outfile.close()
+		os.chdir('../../../')
 
 
 

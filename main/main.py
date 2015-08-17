@@ -36,9 +36,9 @@ def main():
 
 #	# Download .pdb using pdb_id
 #	# THIS WORKS. DO NOT CHANGE
-	pdb_getter = PDBFromUniprot()
-	pdb_code = '4PDJ'
-	pdb_getter.fetch_pdb(pdb_code)
+#	pdb_getter = PDBFromUniprot()
+#	pdb_code = '4PDJ'
+#	pdb_getter.fetch_pdb(pdb_code)
 #	cif_getter = CIFFromUniprot()
 #	cif_getter.fetch_mmCIF(pdb_code, pdb_dir)
 
@@ -47,21 +47,24 @@ def main():
 # What ligand is bound? Extract out all residues within 5
 
 #	# Get ligand
-	ligand = LigandBindingSite('4PDJ')
-	ligand.get_residues_within_5A()
-	ligand.write_residue_output()
+#	# THIS WORKS. DO NOT CHANGE
+#	ligand = LigandBindingSite('4PDJ')
+#	ligand.get_residues_within_5A()
+#	ligand.write_residue_output()
 
 #	# Get surface residues
-	sr_getter = SurfaceResidues('4PDJ')
-	sr_getter.write_resi_sasa_output()
-	sr_getter.write_surface_resi_output(0.3)
+#	# THIS WORKS. DO NOT CHANGE
+#	sr_getter = SurfaceResidues('4PDJ')
+#	sr_getter.write_resi_sasa_output()
+#	sr_getter.write_surface_resi_output(0.3)
 
 #	# Edit the B-factor column of a pdb
 #	# Currently this requires a .txt file in the /pdb directory for the editing... needs work
-	pdb_editor = EditPDB('4PDJ')
-	pdb_editor.edit_bfactor_sasa()
-	pdb_editor.edit_bfactor_ligand_binding_pocket()
-	pdb_editor.edit_bfactor_surface_residues()
+	pdb_editor = EditPDB('folA_M9fitness_1')
+#	pdb_editor.edit_bfactor_sasa()
+#	pdb_editor.edit_bfactor_ligand_binding_pocket()
+#	pdb_editor.edit_bfactor_surface_residues()
+	pdb_editor.write_bfactor()
 
 # Find pockets --> needs to be written and tested
 
@@ -90,6 +93,8 @@ def main():
 #		blast = BLAST(genbank_id)
 #		blast.blast_record()
 #		blast.save_blast_xml()
+
+#	# Implement linear regression model. linear algebra... numpy?
 
 			
 
