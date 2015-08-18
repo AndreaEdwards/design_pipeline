@@ -253,6 +253,14 @@ class SurfaceResidues:
 			output_b_factors.write(residue_position + '\t' + self.SASA_dict[self.filename][residue_position][2] + '\n')
 		output_b_factors.close()
 
+	def write_frac_sasa_output(self):
+		self._build_SASA_dict()
+		sasa_b_factor_filename = os.getcwd() + '/' + self.filename + '_fracsasa.txt'
+		output_b_factors = open(sasa_b_factor_filename, 'w')
+		for residue_position in self.SASA_dict[self.filename]:
+			output_b_factors.write(residue_position + '\t' + self.SASA_dict[self.filename][residue_position][3] + '\n')
+		output_b_factors.close()
+
 	def write_surface_resi_output(self, threshold):
 		surface_residues = self._get_surface_residues(threshold)
 		out_filename = self.filename + '_SurfRes.txt'
@@ -362,6 +370,10 @@ class EditPDB:
 		lines = self._edit_bfactor("_sasa")
 		self._write_output(lines, "_sasa.pdb")
 
+	def edit_bfactor_percent_sasa(self):
+		lines = self._edit_bfactor("_fracsasa")
+		self._write_output(lines, "_fracsasa.pdb")
+
 	def edit_bfactor_ligand_binding_pocket(self):
 		lines = self._edit_bfactor("_lpocket")
 		self._write_output(lines, "_lpocket.pdb")
@@ -373,13 +385,13 @@ class EditPDB:
 	def write_bfactor(self):
 		lines = self._pull_bfactor()
 		sorted_list = self._sort_keys(lines)
-		os.chdir('./database/pdbs/pdb')
+		#os.chdir('./database/pdbs/pdb')
 		output_file = os.getcwd() + "/" + self.filename + '_pulled_bfactors.txt'
 		outfile = open(output_file, 'w')
 		for resnum in sorted_list:
 			outfile.write(lines[str(resnum)])
 		outfile.close()
-		os.chdir('../../../')
+		#os.chdir('../../../')
 
 
 

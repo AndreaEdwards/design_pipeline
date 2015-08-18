@@ -3,6 +3,7 @@ from src.pfam import PfamFromUniprot
 from src.blast import BLAST
 from src.genbank import GenBank
 from src.hmm import HMM
+from src.stats import Correlation
 
 def main():
 	
@@ -54,17 +55,22 @@ def main():
 
 #	# Get surface residues
 #	# THIS WORKS. DO NOT CHANGE
-#	sr_getter = SurfaceResidues('4PDJ')
+	sr_getter = SurfaceResidues('4PDJ')
 #	sr_getter.write_resi_sasa_output()
 #	sr_getter.write_surface_resi_output(0.3)
+	sr_getter.write_frac_sasa_output()
 
 #	# Edit the B-factor column of a pdb
 #	# Currently this requires a .txt file in the /pdb directory for the editing... needs work
-	pdb_editor = EditPDB('folA_M9fitness_1')
+	pdb_editor = EditPDB('test')
 #	pdb_editor.edit_bfactor_sasa()
 #	pdb_editor.edit_bfactor_ligand_binding_pocket()
 #	pdb_editor.edit_bfactor_surface_residues()
 	pdb_editor.write_bfactor()
+
+#	# Linear regression
+	correlation = Correlation()
+	correlation.linregress('4PDJ_fracsasa.txt', 'test_pulled_bfactors.txt')
 
 # Find pockets --> needs to be written and tested
 
