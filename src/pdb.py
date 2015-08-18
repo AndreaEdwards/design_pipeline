@@ -161,20 +161,82 @@ class LigandBindingSite:
 
 
 class Rosetta:
-	def __init__(self):
-		pass
+	def __init__(self, pdb_code):
+		self.filename = pdb_code
+		self.pdb = []
+		self.filepath = ''
 
-	def minimize_pdb(pdb_file):
+	def _get_pdb(self):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		pdb_files = file_handlers.find_files(file_paths, 'pdb')
+		for pdb_file in pdb_files:
+			if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+				print "Found ", (self.filename + '_0001')
+				self.filepath = pdb_file
+
+	def _get_data(self, file_tag):
+		data = []
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		txt_files = file_handlers.find_files(file_paths, 'txt')
+		for txt_file in txt_files:
+			if self.filename == file_handlers.get_file_name(txt_file).split('_')[0]:
+				if (file_tag.split('_')[1] + '.txt') == file_handlers.get_file_name(txt_file).split('_')[1]:
+					TXT = open(txt_file)
+					data = TXT.readlines()
+					TXT.close()
+		return data
+
+	def _get_surface_residues(self, file_tag):
+		data = self._get_data(file_tag)
+		residues = []
+		for line in data:
+			residue_number = line.split('\t')[0].strip()
+			residues.append(residue_number)
+		return residues
+
+	def _get_output(self):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		out_files = file_handlers.find_files(file_paths, 'out')
+		for out_file in out_files:
+			TXT = open(out_file)
+			data = TXT.readlines()
+			TXT.close()
+		os.remove(out_file)
+		return data
+
+	def _get_score(self):
+		data = self._get_output()
+		for line in data:
+			score = float(line.split(' ')[-1].strip())
+		return score
+
+	def _minimize_pdb(pdb_file):
 		cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -s ' + pdb_file + ' -ignore_unrecognized_res']
 		subprocess.call(cmd, shell=True)
 
-	def run_ddg_monomer(pdb, mutation_list):
+	def _run_ddg_monomer(pdb, mutation_list):
 		# Not tested yet.
 		cmd = ['~/rosetta/main/source/bin/pmut_scan_parallel.static.macosclangrelease  -s 4OY6_0001.pdb -ex1 -ex2 -extrachi_cutoff 1 -use_input_sc -ignore_unrecognized_res -no_his_his_pairE -multi_cool_annealer 10 -mute basic core -mutants_list mutant_list -DDG_cutoff 0 | grep PointMut|grep -v "go()"|grep -v "main()" > mutants.out']
 		subprocess.call(cmd, shell=True)
 
-	def pocket_finder():
-		pass
+	def _pocket_finder(self, residue_number):
+		cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + self.filepath + ' -central_relax_pdb_num ' + str(residue_number) + ':A -pocket_num_angles 100 -pocket_dump_pdbs | grep Largest >> pocket_score.out']
+		subprocess.call(cmd, shell=True)
+
+	def find_pockets(self):
+		data = []
+		self._get_pdb()
+		residues = self._get_surface_residues("_SurfRes")
+		print 'residues are: ', residues
+		for residue in residues:
+			self._pocket_finder(residue)
+			score = self._get_score()
+			print 'Residue number: %s Score: %s' % (residue, str(score))
+			data.append((residue, score))
+		return data
 
 
 class SurfaceResidues:
@@ -392,6 +454,10 @@ class EditPDB:
 			outfile.write(lines[str(resnum)])
 		outfile.close()
 		#os.chdir('../../../')
+
+
+
+
 
 
 
