@@ -75,8 +75,6 @@ def main():
 # Find pockets --> needs to be written and tested
 	rosetta = Rosetta('4PDJ')
 	data = rosetta.find_pockets()
-	print data
-
 
 #	# Get pfam_id using uniprot_id. Can be many pfam_ids per target.
 #	# THIS WORKS. DO NOT CHANGE

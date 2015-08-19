@@ -213,29 +213,37 @@ class Rosetta:
 			score = float(line.split(' ')[-1].strip())
 		return score
 
-	def _minimize_pdb(pdb_file):
+	def _minimize_pdb(self, pdb_file):
 		cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -s ' + pdb_file + ' -ignore_unrecognized_res']
 		subprocess.call(cmd, shell=True)
 
-	def _run_ddg_monomer(pdb, mutation_list):
+	def _run_ddg_monomer(self, pdb, mutation_list):
 		# Not tested yet.
 		cmd = ['~/rosetta/main/source/bin/pmut_scan_parallel.static.macosclangrelease  -s 4OY6_0001.pdb -ex1 -ex2 -extrachi_cutoff 1 -use_input_sc -ignore_unrecognized_res -no_his_his_pairE -multi_cool_annealer 10 -mute basic core -mutants_list mutant_list -DDG_cutoff 0 | grep PointMut|grep -v "go()"|grep -v "main()" > mutants.out']
 		subprocess.call(cmd, shell=True)
 
 	def _pocket_finder(self, residue_number):
-		cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + self.filepath + ' -central_relax_pdb_num ' + str(residue_number) + ':A -pocket_num_angles 100 -pocket_dump_pdbs | grep Largest >> pocket_score.out']
+		cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + self.filepath + ' -central_relax_pdb_num ' + str(residue_number) + ':A -pocket_num_angles 100 | grep Largest >> pocket_score.out']
 		subprocess.call(cmd, shell=True)
+
+	def _write_scores(self, data):
+		out_file = self.filename + '_pocket_scores.out'
+		out = open(os.getcwd() + out_file, 'w')
+		for tuple_element in data:
+			out.write(str(tuple_element[0]) + '\t' + str(tuple_element[1]) + '\n')
+		out.close()
 
 	def find_pockets(self):
 		data = []
 		self._get_pdb()
 		residues = self._get_surface_residues("_SurfRes")
-		print 'residues are: ', residues
+		print 'Surface residues are: ', residues
 		for residue in residues:
 			self._pocket_finder(residue)
 			score = self._get_score()
 			print 'Residue number: %s Score: %s' % (residue, str(score))
 			data.append((residue, score))
+		self._write_scores(data)
 		return data
 
 
