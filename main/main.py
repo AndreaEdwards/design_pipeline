@@ -60,21 +60,23 @@ def main():
 #	sr_getter.write_surface_resi_output(0.3)
 #	sr_getter.write_frac_sasa_output()
 
+# Find pockets --> needs to be written and tested
+	rosetta = Rosetta('4PDJ')
+	rosetta.find_pockets()
+
 #	# Edit the B-factor column of a pdb
 #	# Currently this requires a .txt file in the /pdb directory for the editing... needs work
-#	pdb_editor = EditPDB('test')
+	pdb_editor = EditPDB('4PDJ')
 #	pdb_editor.edit_bfactor_sasa()
 #	pdb_editor.edit_bfactor_ligand_binding_pocket()
 #	pdb_editor.edit_bfactor_surface_residues()
+	pdb_editor.edit_bfactor_pockets()
+	pdb_editor.edit_bfactor_pocket_residues()
 #	pdb_editor.write_bfactor()
 
 #	# Linear regression
 #	correlation = Correlation()
 #	correlation.linregress('4PDJ_fracsasa.txt', 'test_pulled_bfactors.txt')
-
-# Find pockets --> needs to be written and tested
-	rosetta = Rosetta('4PDJ')
-	data = rosetta.find_pockets()
 
 #	# Get pfam_id using uniprot_id. Can be many pfam_ids per target.
 #	# THIS WORKS. DO NOT CHANGE

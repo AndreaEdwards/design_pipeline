@@ -7,6 +7,9 @@ from util import FileHandlers
 from prody import fetchPDBviaFTP, parsePDB, writePDB
 import numpy
 import pandas
+from operator import itemgetter
+import matplotlib.pyplot as plt
+import itertools
 
 class PDBFromUniprot:
 	def __init__(self):
@@ -164,16 +167,34 @@ class Rosetta:
 	def __init__(self, pdb_code):
 		self.filename = pdb_code
 		self.pdb = []
-		self.filepath = ''
 
-	def _get_pdb(self):
+	def _get_pdb(self, rosetta_min=False, refined_pocket=False):
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
 		pdb_files = file_handlers.find_files(file_paths, 'pdb')
 		for pdb_file in pdb_files:
-			if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-				print "Found ", (self.filename + '_0001')
-				self.filepath = pdb_file
+			if rosetta_min == True and refined_pocket == True:
+				print "Invalid input"
+			elif rosetta_min == True:
+				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					print "Found ", (self.filename + '_0001.pdb')
+					filepath = pdb_file
+			elif refined_pocket == True:
+				if ('pocket0') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					print "Found pocket0.pdb"
+					filepath = pdb_file
+			else:
+				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					print "Found ", (self.filename + '.pdb')
+					filepath = pdb_file
+		return filepath
+
+	def _open_file(self, filepath):
+		Data = open(filepath, 'r')
+		data = Data.readlines()
+		Data.close()
+		os.remove(filepath)
+		return data
 
 	def _get_data(self, file_tag):
 		data = []
@@ -213,6 +234,42 @@ class Rosetta:
 			score = float(line.split(' ')[-1].strip())
 		return score
 
+	def _get_resnums(self, filtered_data):
+		resnums = []
+		for data in filtered_data:
+			resnums.append(data[0])
+		return resnums
+
+	def _write_scores(self, data, handle):
+		out_file = os.getcwd() + '/' + self.filename + handle
+		out = open(out_file, 'w')
+		for tuple_element in data:
+			out.write(str(tuple_element[0]) + '\t' + str(tuple_element[1]) + '\n')
+		out.close()
+
+	def _write_pocket_residues(self, handle):
+		pocket_residues = self._get_pocket_residues()
+		out_file = os.getcwd() + '/' + self.filename + handle
+		out = open(out_file, 'w')
+		for resnum in pocket_residues:
+			out.write(str(resnum) + '\t' + str(pocket_residues[resnum]) + '\n')
+		out.close()
+
+	def _plot_data(self, data):
+		x = []
+		y = []
+		for d in data:
+			x.append(d[0])
+			y.append(d[1])
+		plt.scatter(x, y)
+		plt.show()
+
+	def _sort_scores(self, data, plt=False):
+		sorted_data = sorted(data, key=itemgetter(1))
+		if plt == True:
+			self._plot_data(sorted_data)
+		return sorted_data
+
 	def _minimize_pdb(self, pdb_file):
 		cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -s ' + pdb_file + ' -ignore_unrecognized_res']
 		subprocess.call(cmd, shell=True)
@@ -222,29 +279,95 @@ class Rosetta:
 		cmd = ['~/rosetta/main/source/bin/pmut_scan_parallel.static.macosclangrelease  -s 4OY6_0001.pdb -ex1 -ex2 -extrachi_cutoff 1 -use_input_sc -ignore_unrecognized_res -no_his_his_pairE -multi_cool_annealer 10 -mute basic core -mutants_list mutant_list -DDG_cutoff 0 | grep PointMut|grep -v "go()"|grep -v "main()" > mutants.out']
 		subprocess.call(cmd, shell=True)
 
-	def _pocket_finder(self, residue_number):
-		cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + self.filepath + ' -central_relax_pdb_num ' + str(residue_number) + ':A -pocket_num_angles 100 | grep Largest >> pocket_score.out']
-		subprocess.call(cmd, shell=True)
+	def _pocket_finder(self, filepath, residue_number, output=False):
+		if len(residue_number) == 1:
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':A -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+			subprocess.call(cmd, shell=True)
+		elif len(residue_number) == 2 and output == False:
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':A,' + str(residue_number[1]) + ':A -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+			subprocess.call(cmd, shell=True)
+		elif len(residue_number) == 2 and output == True:
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':A,' + str(residue_number[1]) + ':A -pocket_dump_pdbs -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+			subprocess.call(cmd, shell=True)
+		else:
+			print "invalid input"
 
-	def _write_scores(self, data):
-		out_file = self.filename + '_pocket_scores.out'
-		out = open(os.getcwd() + out_file, 'w')
-		for tuple_element in data:
-			out.write(str(tuple_element[0]) + '\t' + str(tuple_element[1]) + '\n')
-		out.close()
-
-	def find_pockets(self):
+	def _scan_surface(self):
 		data = []
-		self._get_pdb()
+		filepath = self._get_pdb(rosetta_min=True)
 		residues = self._get_surface_residues("_SurfRes")
 		print 'Surface residues are: ', residues
+		print 'Scanning surface for pockets...'
 		for residue in residues:
-			self._pocket_finder(residue)
+			self._pocket_finder(filepath, [residue])
 			score = self._get_score()
 			print 'Residue number: %s Score: %s' % (residue, str(score))
 			data.append((residue, score))
-		self._write_scores(data)
+		self._write_scores(data, '_pocket_scores.out')
 		return data
+
+	def _refine_pockets(self, filtered_data):
+		print "Refining pocket location..."
+		filepath = self._get_pdb(rosetta_min=True)
+		resnums = self._get_resnums(filtered_data)
+		combos = itertools.combinations(resnums, 2)
+		results = []
+		for combo in combos:
+			res1, res2 = combo[0], combo[1]
+			self._pocket_finder(filepath, combo)
+			score = self._get_score()
+			results.append((combo, score))
+			print 'Residues: %s %s Score: %s' % (str(combo[0]), str(combo[1]), str(score))
+		sorted_results = self._sort_scores(results, plt=False)
+		self._pocket_finder(filepath, list(sorted_results[-1][0]), output=True)
+
+	def _get_pocket_coordinates(self):
+		pockets_filepath = self._get_pdb(refined_pocket=True)
+		pockets = self._open_file(pockets_filepath)
+		pocket_coordinates = []
+		pocket_data = []
+		for line in pockets:
+			if line[13:16] == 'TPB':
+				pocket_data.append(line)
+				coordinates = (line[31:38], line[39:46], line[47:54])
+				pocket_coordinates.append(coordinates)
+		self._extract_pocket(pocket_data)
+		return pocket_coordinates
+
+	def _extract_pocket(self, pocket_data):
+		out_file = os.getcwd() + '/' + self.filename + 'main_pocket.pdb'
+		out = open(out_file, 'w')
+		for line in pocket_data:
+			out.write(line + '\n')
+		out.close() 
+
+	def _get_pocket_residues(self):
+		pocket_residues = {}
+		pocket_coordinates = self._get_pocket_coordinates()
+		protein_filepath = self._get_pdb(rosetta_min=True)
+		p = PDBParser(QUIET=True)
+		structure = p.get_structure('protein', protein_filepath)
+		chain = structure[0]['A']
+		for residue in chain.get_residues():
+			for atom in residue:
+				for coordinate in pocket_coordinates:
+					if abs(float(atom.get_coord()[0]) - float(coordinate[0])) <= 2.5 and abs(float(atom.get_coord()[1]) - float(coordinate[1])) <= 2.5 and abs(float(atom.get_coord()[2]) - float(coordinate[2])) <= 2.5:
+						pocket_residues[str(residue.id[1])] = str(100.00)
+		return pocket_residues
+
+	def find_pockets(self):
+		data = self._scan_surface()
+		sorted_data = self._sort_scores(data, plt=True)
+		highest_score = float(sorted_data[-1][1])
+		lowest_score = float(sorted_data[0][1])
+		filtered_data = []
+		for data in sorted_data:
+			frac = abs((lowest_score - float(data[1])) / (highest_score - lowest_score))
+			if frac >= 0.85:
+				filtered_data.append(data)
+		self._refine_pockets(filtered_data)
+		self._write_scores(filtered_data, '_pockets.txt')
+		self._write_pocket_residues('_pocketres.txt')
 
 
 class SurfaceResidues:
@@ -451,6 +574,14 @@ class EditPDB:
 	def edit_bfactor_surface_residues(self):
 		lines = self._edit_bfactor("_SurfRes")
 		self._write_output(lines, "_SurfRes.pdb")
+
+	def edit_bfactor_pockets(self):
+		lines = self._edit_bfactor("_pockets")
+		self._write_output(lines, "_pockets.pdb")
+
+	def edit_bfactor_pocket_residues(self):
+		lines = self._edit_bfactor("_pocketres")
+		self._write_output(lines, "_pocketres.pdb")
 
 	def write_bfactor(self):
 		lines = self._pull_bfactor()
