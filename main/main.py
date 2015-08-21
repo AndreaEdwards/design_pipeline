@@ -1,4 +1,7 @@
-from src.pdb import PDBFromUniprot, CIFFromUniprot, LigandBindingSite, EditPDB, SurfaceResidues, Rosetta
+from src.pdb import (PDBFromUniprot, 
+	CIFFromUniprot, LigandBindingSite, EditPDB, 
+	SurfaceResidues, Rosetta, MutantListMaker,
+	DDGMonomer)
 from src.pfam import PfamFromUniprot
 from src.blast import BLAST
 from src.genbank import GenBank
@@ -60,19 +63,28 @@ def main():
 #	sr_getter.write_surface_resi_output(0.3)
 #	sr_getter.write_frac_sasa_output()
 
-# Find pockets --> needs to be written and tested
-	rosetta = Rosetta('4PDJ')
-	rosetta.find_pockets()
+# 	# Find pockets 
+#	# THIS WORKS. DO NOT CHANGE
+#	rosetta = Rosetta('4PDJ')
+#	rosetta.find_pockets()
 
 #	# Edit the B-factor column of a pdb
-#	# Currently this requires a .txt file in the /pdb directory for the editing... needs work
-	pdb_editor = EditPDB('4PDJ')
+#	# THIS WORKS. Needs improvement with file handling
+#	pdb_editor = EditPDB('4PDJ')
 #	pdb_editor.edit_bfactor_sasa()
 #	pdb_editor.edit_bfactor_ligand_binding_pocket()
 #	pdb_editor.edit_bfactor_surface_residues()
-	pdb_editor.edit_bfactor_pockets()
-	pdb_editor.edit_bfactor_pocket_residues()
+#	pdb_editor.edit_bfactor_pockets()
+#	pdb_editor.edit_bfactor_pocket_residues()
 #	pdb_editor.write_bfactor()
+
+#	# Make 'mutants_list' file for ddg_monomer
+#	# THIS WORKS. DO NOT CHANGE
+	ListMaker = MutantListMaker('4PDJ')
+	ListMaker.generate_mutant_list()
+
+	ddgMonomer = DDGMonomer('4PDJ')
+	ddgMonomer.get_targets(5.5)
 
 #	# Linear regression
 #	correlation = Correlation()
