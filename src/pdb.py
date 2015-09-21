@@ -33,7 +33,9 @@ class PDBFromUniprot:
 				PDB_codes.append(pdb_code.strip())
 			return PDB_codes
 		else:
-		    print "Failed to retrieve results"
+			print "Failed to retrieve results"
+			PDB_codes = []
+			return PDB_codes
 
 	def _get_downloaded_file_path(self, pdb_code):
 		file_handlers = FileHandlers()
@@ -77,13 +79,16 @@ class CIFFromUniprot:
 
 class LigandBindingSite:
 	def __init__(self, pdb_code):
+		print "Searching for ligand binding sites...."
 		self.filename = pdb_code
 		self.file_path = ''
 		self.out_filename = ''
 		self.ligand_centroid = []
 		self.ligands = []
 		self.ligand_binding_pocket =[]
-		self.ignore = ['MN ', 'DOD']
+		self.ignore = ['MN ', 'DOD', 'SO4', 'MES']
+		self.ligand_chain = []
+		self.all_ligand_atoms = []
 
 	def _get_file_path(self, ligand=False, pdb=False):
 		#os.chdir("./database/pdbs/pdb")
@@ -96,9 +101,30 @@ class LigandBindingSite:
 				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
 					self.file_path = pdb_file
 		elif pdb == True:
+			file_names = []
 			for pdb_file in pdb_files:
-				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					self.file_path = pdb_file
+				found = file_handlers.get_file_name(pdb_file).split('.')[0]
+				file_names.append(found)
+				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					current_pdb = pdb_file
+					#print "current_pdb", current_pdb
+			if (self.filename + '_0001') not in file_names:
+				# Run Rosetta Minimizer
+				cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -s ' + current_pdb + ' -ignore_unrecognized_res']
+				subprocess.call(cmd, shell=True)
+				file_handlers = FileHandlers()
+				file_paths = file_handlers.search_directory()
+				pdb_files = file_handlers.find_files(file_paths, 'pdb')
+				for pdb_file in pdb_files:
+					#print "pdb_file:", pdb_file
+					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+						self.file_path = pdb_file
+			else:
+				print "Found Rosetta minimized structure file %s" % (self.filename + '_0001')
+				for pdb_file in pdb_files:
+					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+						self.file_path = pdb_file
+
 		#os.chdir("../../../")
 
 	def _find_ligand(self):
@@ -115,59 +141,96 @@ class LigandBindingSite:
 				self.out_filename = self.file_path.split('.')[0] + '_ligand.pdb'
 				writePDB(self.out_filename, ligand)
 
-	def _get_ligand_centroid(self):
+	def _get_ligand_coordinates(self):
 		self._find_ligand()
 		p = PDBParser(QUIET=True)
-		structure = p.get_structure('ligand', self.out_filename)
-		chain = structure[0]['A']
-		for residue in chain.get_residues():
-		    if residue.resname not in self.ignore:
-		    	atom_pos_array = []
-    			min_array = []
-    			for atom in residue:
-		    		min_array = [atom.get_coord()[0],atom.get_coord()[1],atom.get_coord()[2]]
-		    		atom_pos_array.append(min_array)
-				self.ligand_centroid.append(numpy.mean(atom_pos_array,axis = 0))
+		if self.out_filename == '':
+			print "No ligand found for %s" % self.filename
+		else:
+			structure = p.get_structure('ligand', self.out_filename)
+			chain_ids = ['A', 'B', 'C', 'D', 'X']
+			for entry in chain_ids:
+				try:
+					chain = structure[0][entry]
+					if chain:
+						print "Found ligand on chain %s" % entry
+						for residue in chain.get_residues():
+							if residue.resname not in self.ignore:
+								atom_pos_array = []
+								min_array = []
+								for atom in residue:
+									min_array = [atom.get_coord()[0],atom.get_coord()[1],atom.get_coord()[2]]
+									atom_pos_array.append(min_array)
+								self.ligand_centroid.append(numpy.mean(atom_pos_array,axis = 0))
+								self.all_ligand_atoms = atom_pos_array
+				except KeyError:
+					pass
+					#print 'Cannot calculate ligand centroid for chain %s of %s' % (entry, self.filename)
+
 
 	def _get_ligand_name(self):
 		p = PDBParser(QUIET=True)
 		ligand = p.get_structure('ligand', self.out_filename)
-		chain = ligand[0]['A']
-		for residue in chain.get_residues():
-			if residue.resname in self.ignore:
+		chain_ids = ['A', 'B', 'C', 'D', 'X']
+		for entry in chain_ids:
+			try:
+				chain = ligand[0][entry]
+				for residue in chain.get_residues():
+					if residue.resname in self.ignore:
+						pass
+					else:
+						self.ligands.append(residue.resname)
+						self.ligand_chain.append(entry)
+				print "Ligands found: ", self.ligands
+				return self.ligands
+			except KeyError:
 				pass
-			else:
-				self.ligands.append(residue.resname)
-		print "Ligands found: ", self.ligands
+				#print 'No ligand found in chain %s of %s' % (entry, self.filename)
 
-	def get_residues_within_5A(self):
-		self._get_ligand_centroid()
-		self._get_ligand_name()
-		self._get_file_path(pdb=True)
-		p = PDBParser(QUIET=True)
-		structure = p.get_structure('protein', self.file_path)
-		chain = structure[0]['A']
-		ligand_binding_pocket = []
-		for residue in chain.get_residues():
-			for atom in residue:
-				if residue.resname in self.ligands:
-					pass
-				elif residue.resname in self.ignore:
-					pass
-				else:
-					for centroid in self.ligand_centroid:
-						if abs(float(atom.get_coord()[0]) - float(centroid[0])) <= 5 and abs(float(atom.get_coord()[1]) - float(centroid[1])) <= 5 and abs(float(atom.get_coord()[2]) - float(centroid[2])) <= 5:
-							ligand_binding_pocket.append(str(residue.resname) + '\t' + str(residue.id[1]))
-		self.ligand_binding_pocket = set(ligand_binding_pocket)
+	def get_residues_within_5A(self, centroid='False'):
+		self._get_ligand_coordinates()
+		if self.ligand_centroid == []:
+			print 'No ligand bound to %s' % self.filename
+		else:
+			self._get_ligand_name()
+			self._get_file_path(pdb=True)
+			p = PDBParser(QUIET=True)
+			structure = p.get_structure('protein', self.file_path)
+			#chain_ids = ['A', 'B', 'C', 'D', 'X']
+			for entry in self.ligand_chain:
+				try:
+					chain = structure[0][entry]
+					ligand_binding_pocket = []
+					for residue in chain.get_residues():
+						for atom in residue:
+							if residue.resname in self.ligands:
+								pass
+							elif residue.resname in self.ignore:
+								pass
+							else:
+								if centroid == 'True':
+									for centroid in self.ligand_centroid:
+										if abs(float(atom.get_coord()[0]) - float(centroid[0])) <= 5 and abs(float(atom.get_coord()[1]) - float(centroid[1])) <= 5 and abs(float(atom.get_coord()[2]) - float(centroid[2])) <= 5:
+											ligand_binding_pocket.append(str(residue.resname) + '\t' + str(residue.id[1]))
+								else:
+									for coordinate in self.all_ligand_atoms:
+										if abs(float(atom.get_coord()[0]) - float(coordinate[0])) <= 5 and abs(float(atom.get_coord()[1]) - float(coordinate[1])) <= 5 and abs(float(atom.get_coord()[2]) - float(coordinate[2])) <= 5:
+											ligand_binding_pocket.append(str(residue.resname) + '\t' + str(residue.id[1]))
+					self.ligand_binding_pocket = set(ligand_binding_pocket)
+					print "Residues in ligand binding pocket: ", [line.split('\t') for line in self.ligand_binding_pocket]
+					return self.ligand_binding_pocket
+				except KeyError:
+					print 'No ligand found in chain %s of %s' % (entry, self.filename)
+
 
 	def write_residue_output(self):
-		os.chdir('./database/pdbs/pdb')
+		#os.chdir('./database/pdbs/pdb')
 		active_site_filename = os.getcwd() + '/' + self.filename + '_lpocket.txt'
 		output_residues = open(active_site_filename, 'w')
 		for line in self.ligand_binding_pocket:
 			output_residues.write(line.split('\t')[1] + '\t' + str(100.00) + '\n')
 		output_residues.close()
-		os.chdir('../../../')
+		#os.chdir('../../../')
 
 
 class Rosetta:
@@ -184,15 +247,15 @@ class Rosetta:
 				print "Invalid input"
 			elif rosetta_min == True:
 				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					print "Found ", (self.filename + '_0001.pdb')
+					print "Found Rosetta minimized structure file ", (self.filename + '_0001.pdb')
 					filepath = pdb_file
 			elif refined_pocket == True:
 				if ('pocket0') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					print "Found pocket0.pdb"
+					print "Found pocket file pocket0.pdb"
 					filepath = pdb_file
 			else:
 				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					print "Found ", (self.filename + '.pdb')
+					print "Found target structure file ", (self.filename + '.pdb')
 					filepath = pdb_file
 		return filepath
 
@@ -229,10 +292,11 @@ class Rosetta:
 		file_paths = file_handlers.search_directory()
 		out_files = file_handlers.find_files(file_paths, 'out')
 		for out_file in out_files:
-			TXT = open(out_file)
-			data = TXT.readlines()
-			TXT.close()
-		os.remove(out_file)
+			if 'pocket_score' == file_handlers.get_file_name(out_file).split('.')[0]:
+				TXT = open(out_file)
+				data = TXT.readlines()
+				TXT.close()
+				#os.remove(out_file)
 		return data
 
 	def _get_score(self):
@@ -277,15 +341,6 @@ class Rosetta:
 			self._plot_data(sorted_data)
 		return sorted_data
 
-	def _minimize_pdb(self, pdb_file):
-		cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -s ' + pdb_file + ' -ignore_unrecognized_res']
-		subprocess.call(cmd, shell=True)
-
-	def _run_ddg_monomer(self, pdb, mutation_list):
-		# Not tested yet.
-		cmd = ['~/rosetta/main/source/bin/pmut_scan_parallel.static.macosclangrelease  -s 4OY6_0001.pdb -ex1 -ex2 -extrachi_cutoff 1 -use_input_sc -ignore_unrecognized_res -no_his_his_pairE -multi_cool_annealer 10 -mute basic core -mutants_list mutant_list -DDG_cutoff 0 | grep PointMut|grep -v "go()"|grep -v "main()" > mutants.out']
-		subprocess.call(cmd, shell=True)
-
 	def _pocket_finder(self, filepath, residue_number, output=False):
 		if len(residue_number) == 1:
 			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':A -pocket_num_angles 100 | grep Largest >> pocket_score.out']
@@ -303,7 +358,7 @@ class Rosetta:
 		data = []
 		filepath = self._get_pdb(rosetta_min=True)
 		residues = self._get_surface_residues("_SurfRes")
-		print 'Surface residues are: ', residues
+		#print 'Surface residues are: ', residues
 		print 'Scanning surface for pockets...'
 		for residue in residues:
 			self._pocket_finder(filepath, [residue])
@@ -323,8 +378,9 @@ class Rosetta:
 			res1, res2 = combo[0], combo[1]
 			self._pocket_finder(filepath, combo)
 			score = self._get_score()
+			#print "combo: %s; score: %s" % (combo, score)
 			results.append((combo, score))
-			print 'Residues: %s %s Score: %s' % (str(combo[0]), str(combo[1]), str(score))
+			#print 'Residues: %s %s Score: %s' % (str(combo[0]), str(combo[1]), str(score))
 		sorted_results = self._sort_scores(results, plt=False)
 		self._pocket_finder(filepath, list(sorted_results[-1][0]), output=True)
 
@@ -364,13 +420,13 @@ class Rosetta:
 
 	def find_pockets(self):
 		data = self._scan_surface()
-		sorted_data = self._sort_scores(data, plt=True)
+		sorted_data = self._sort_scores(data, plt=False)
 		highest_score = float(sorted_data[-1][1])
 		lowest_score = float(sorted_data[0][1])
 		filtered_data = []
 		for data in sorted_data:
 			frac = abs((lowest_score - float(data[1])) / (highest_score - lowest_score))
-			if frac >= 0.85:
+			if frac >= 0.70:
 				filtered_data.append(data)
 		self._refine_pockets(filtered_data)
 		self._write_scores(filtered_data, '_pockets.txt')
@@ -486,7 +542,7 @@ class DDGMonomer:
 
 	def _run_ddg_monomer(self, pdb_filepath, mutant_list, threshold):
 		print "Running ddg_monomer..."
-		cmd = ['~/rosetta/main/source/bin/pmut_scan_parallel.static.macosclangrelease -s ' + pdb_filepath + ' -ex1 -ex2 -extrachi_cutoff 1 -use_input_sc -ignore_unrecognized_res -no_his_his_pairE -multi_cool_annealer 10 -mute basic core -mutants_list ' + mutant_list + ' -DDG_cutoff ' + threshold + ' | grep PointMut|grep -v "go()"|grep -v "main()" > mutants.out']
+		cmd = ['~/rosetta/main/source/bin/pmut_scan_parallel.static.macosclangrelease -jd2 -s ' + pdb_filepath + ' -ex1 -ex2 -extrachi_cutoff 1 -use_input_sc -ignore_unrecognized_res -no_his_his_pairE -multi_cool_annealer 10 -mute basic core -mutants_list ' + mutant_list + ' -DDG_cutoff ' + threshold + ' | grep PointMut|grep -v "go()"|grep -v "main()" > ' + self.filename + '_mutants.out']
 		subprocess.call(cmd, shell=True)
 
 	def get_targets(self, threshold):
@@ -497,6 +553,7 @@ class DDGMonomer:
 
 class SurfaceResidues:
 	def __init__(self, pdb_code):
+		print "Calculating solvent accessible surface area using POPS...."
 		self.dir_path = os.getcwd() + '/pops_results'
 		self._mkdir()
 		self.filename = pdb_code
@@ -507,13 +564,15 @@ class SurfaceResidues:
 		self.SASA_dict = {}
 
 	def _get_file_path(self):
-		os.chdir("./database/pdbs/pdb")
+		#os.chdir("./database/pdbs/pdb")
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
 		pdb_files = file_handlers.find_files(file_paths, 'pdb')
+		#print self.filename
 		for pdb_file in pdb_files:
 			if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
 				self.file_path = pdb_file
+				#print pdb_file
 				self.out_file = file_handlers.get_file_name(pdb_file).split('.')[0] + '_pops.out'
 				self.out_file_path = self.dir_path + '/' + self.out_file
 
@@ -583,7 +642,8 @@ class SurfaceResidues:
 		surface_residues = self._get_surface_residues(threshold)
 		out_filename = self.filename + '_SurfRes.txt'
 		output = open(out_filename, 'w')
-		for resi_position in surface_residues:
+		for line in surface_residues:
+			resi_position = line.split('\t')[1]
 			output.write(resi_position + '\t100.00\n')
 		output.close
 
@@ -594,12 +654,13 @@ class SurfaceResidues:
 			for pdb_code in self.SASA_dict:
 				for resi_position, SASA_info_list in self.SASA_dict[pdb_code].iteritems():
 					if float(SASA_info_list[3]) > threshold:
-						surface_residues.append(resi_position)
+						surface_residues.append(SASA_info_list[0] + '\t' + resi_position)
 		else:
 			for pdb_code in self.SASA_dict:
 				for resi_position, SASA_info_list in self.SASA_dict[pdb_code].iteritems():
 					if float(SASA_info_list[3]) > threshold:
-						surface_residues.append(resi_position)
+						surface_residues.append(SASA_info_list[0] + '\t' + resi_position)
+		print "Surface residues are: ", [line.split('\t') for line in surface_residues]
 		return surface_residues
 
 
@@ -639,7 +700,7 @@ class EditPDB:
 		for line in self.data:
 			fields = line.split('\t')
 			cleaned = file_handlers.clean(fields)
-			self.data_dict[cleaned[0]] = float(cleaned[1])
+			self.data_dict[int(cleaned[0])] = float(cleaned[1])
 
 	def _edit_bfactor(self, file_tag):
 		self._get_pdb()
@@ -647,7 +708,7 @@ class EditPDB:
 		lines_out = []
 		for line in self.pdb:
 			if line[0:6] == "ATOM  ":
-				resnum = line[23:26].strip()
+				resnum = int(line[22:26].strip())
 				if resnum in self.data_dict.keys():
 					lines_out.append("%s%6.2F%s" % (line[:60], self.data_dict[resnum], line[66:]))
 				else:
@@ -708,7 +769,7 @@ class EditPDB:
 		lines = self._edit_bfactor("_pocketres")
 		self._write_output(lines, "_pocketres.pdb")
 
-	def write_bfactor(self):
+	def get_bfactor(self):
 		lines = self._pull_bfactor()
 		sorted_list = self._sort_keys(lines)
 		#os.chdir('./database/pdbs/pdb')

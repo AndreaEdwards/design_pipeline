@@ -35,6 +35,10 @@ def main():
 #						"<accessionIdList>" + uniprot_id + "</accessionIdList>" +
 #					"</orgPdbQuery>")
 #	pdb_from_uniprot = PDBFromUniprot()
+	
+#	steele_uniprot_codes = ['P07001', 'P0AB67', 'P27306', 'P0A7B3', 'P0ACS2', 'P0A9E2', 'P0A9B2', 'P0A6T1', 'P0AFG8', 'P06959', 'P0A9P0', 'P0AFG3', 'P0AFG6', 'P61889', 'P33940', 'P0AC53', 'P00350']
+
+#	steele_pdb_codes = ['1X15', '2ZHG', '1S7C', '3NBU', '4N72', '4JDR', '2CMD', '2ZYA']
 #	pdb_codes = pdb_from_uniprot.get_pdb_id(queryText)
 #	print pdb_codes
 
@@ -42,6 +46,7 @@ def main():
 #	# THIS WORKS. DO NOT CHANGE
 #	pdb_getter = PDBFromUniprot()
 #	pdb_code = '4PDJ'
+	#pdb_code = '2XGE'
 #	pdb_getter.fetch_pdb(pdb_code)
 #	cif_getter = CIFFromUniprot()
 #	cif_getter.fetch_mmCIF(pdb_code, pdb_dir)
@@ -52,30 +57,30 @@ def main():
 
 #	# Get ligand
 #	# THIS WORKS. DO NOT CHANGE
-#	ligand = LigandBindingSite('4PDJ')
-#	ligand.get_residues_within_5A()
-#	ligand.write_residue_output()
+	ligand = LigandBindingSite('4PDJ')
+	ligand.get_residues_within_5A()
+	ligand.write_residue_output()
 
 #	# Get surface residues
 #	# THIS WORKS. DO NOT CHANGE
-#	sr_getter = SurfaceResidues('4PDJ')
-#	sr_getter.write_resi_sasa_output()
-#	sr_getter.write_surface_resi_output(0.3)
+	sr_getter = SurfaceResidues('4PDJ')
+	sr_getter.write_resi_sasa_output()
+	sr_getter.write_surface_resi_output(0.3)
 #	sr_getter.write_frac_sasa_output()
 
 # 	# Find pockets 
 #	# THIS WORKS. DO NOT CHANGE
-#	rosetta = Rosetta('4PDJ')
-#	rosetta.find_pockets()
+	rosetta = Rosetta('4PDJ')
+	rosetta.find_pockets()
 
 #	# Edit the B-factor column of a pdb
 #	# THIS WORKS. Needs improvement with file handling
-#	pdb_editor = EditPDB('4PDJ')
-#	pdb_editor.edit_bfactor_sasa()
-#	pdb_editor.edit_bfactor_ligand_binding_pocket()
-#	pdb_editor.edit_bfactor_surface_residues()
+	pdb_editor = EditPDB('4PDJ')
+	pdb_editor.edit_bfactor_sasa()
+	pdb_editor.edit_bfactor_ligand_binding_pocket()
+	pdb_editor.edit_bfactor_surface_residues()
 #	pdb_editor.edit_bfactor_pockets()
-#	pdb_editor.edit_bfactor_pocket_residues()
+	pdb_editor.edit_bfactor_pocket_residues()
 #	pdb_editor.write_bfactor()
 
 #	# Make 'mutants_list' file for ddg_monomer
