@@ -3,7 +3,7 @@ from src.pdb import (PDBFromUniprot,
 	SurfaceResidues, Rosetta, MutantListMaker,
 	DDGMonomer)
 from src.pfam import PfamFromUniprot
-from src.blast import BLAST
+#from src.blast import BLAST
 from src.genbank import GenBank
 from src.hmm import HMM
 from src.stats import Correlation
@@ -36,14 +36,26 @@ def main():
 #						"<accessionIdList>" + uniprot_id + "</accessionIdList>" +
 #					"</orgPdbQuery>")
 #	pdb_from_uniprot = PDBFromUniprot()
+
+	# proteins with no E. coli structures
+	uniprot_ids = ['P0AB67', 'P27306', 'P0A7B3', 'P0A9E2', 'P0AFG8', 'P0AFG3', 'P0AFG6', 'P33940', 'P0AC53', 'H6N162']
+	genbank_ids = ['81171066', '11182439', '67470903', '71162387', '84027826', '84027822', '84027824', '2506692', '81175321', '170180374']
 	
-	steele_pdb_codes = ['1S7C', '4N72', '4JDR', '2CMD', '2ZYA', '3NBU']
-	hold = ['2ZHG']
-	done = ['1X15']
+	pdb_codes = ['2XUVABCD', '1Y00AB']
+	pops_issue = []
+	pocket_finder_issue = ['1W36DBCY', '2ZHG']
+	ligand_issue = ['2ZHG']
+	cleaned_file_mapping = {'1W36' : '1W36DBCY', '4B2N' : '4B2NA', '1U60' : '1U60AB', '2XUV' : '2XUVABCD', '1Y00' : '1Y00AB'}
+	done = ['1X15', '4N72', '4JDR', '2CMD', '2ZYA', '3NBU', '4TWZ', '1SRU', '1S7C', '4B2NA', '2J1N', '1U60AB', '1YAC']
 	# Download .pdb using pdb_id
 	# THIS WORKS. DO NOT CHANGE
 #	pdb_getter = PDBFromUniprot()
-	for pdb_code in steele_pdb_codes:
+	print "===================================================================="
+	print "Entering BioVerse Design Pipeline"
+	print "===================================================================="
+#
+	for pdb_code in pdb_codes:
+		print "\n\nIdentifying residues of interest for %s" % pdb_code
 		# Download .pdb using pdb_id
 		# THIS WORKS. DO NOT CHANGE
 #		pdb_getter.fetch_pdb(pdb_code)
@@ -78,20 +90,12 @@ def main():
 		rosetta.find_pockets()
 		pdb_editor.edit_bfactor_pocket_residues()
 #
-##	# Edit the B-factor column of a pdb
-##	# THIS WORKS. Needs improvement with file handling
-#	pdb_editor = EditPDB('2XGE')
-#	pdb_editor.edit_bfactor_sasa()
-#	pdb_editor.edit_bfactor_ligand_binding_pocket()
-#	pdb_editor.edit_bfactor_surface_residues()
-##	pdb_editor.edit_bfactor_pockets()
-#	pdb_editor.edit_bfactor_pocket_residues()
-##	pdb_editor.get_bfactor()
 #
 ##	# Make 'mutants_list' file for ddg_monomer
 ##	# THIS WORKS. DO NOT CHANGE
 		ListMaker = MutantListMaker(pdb_code)
-		ListMaker.generate_mutant_list()
+#		ListMaker.generate_mutant_list(pocketres=True, lpocket=True, SurfRes=True)
+		ListMaker.generate_mutant_list(pocketres=True, lpocket=True)
 #
 		ddgMonomer = DDGMonomer(pdb_code)
 		ddgMonomer.get_targets(5.5)
@@ -108,15 +112,16 @@ def main():
 #
 ##	# Fetch HMM
 ##	# THIS WORKS. DO NOT CHANGE
+#	for genbank_id in genbank_ids:
 ##	genbank_id = 1788201
-##	hmm = HMM()
-##	hmm.fetch_hmm(genbank_id)
+#		hmm = HMM()
+#		hmm.fetch_hmm(genbank_id)
 #
 ##	# Fetch genbank record
 ##	# THIS WORKS. DO NOT CHANGE
-##	genbank_getter = GenBank()
+#		genbank_getter = GenBank()
 ##	genbank_id = 1788201
-##	genbank_getter.fetch_record(genbank_id)
+#		genbank_getter.fetch_record(genbank_id)
 #
 ##	# wwwBLAST using genbank_id for each target.
 ##	# Buggy (sleeps if no response from server). 

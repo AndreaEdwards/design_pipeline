@@ -80,7 +80,7 @@ class CIFFromUniprot:
 
 class LigandBindingSite:
 	def __init__(self, pdb_code):
-		print "Searching for ligand binding sites...."
+		print "\n\n\nSearching for ligand binding sites...."
 		self.filename = pdb_code
 		self.file_path = ''
 		self.out_filename = ''
@@ -121,7 +121,7 @@ class LigandBindingSite:
 					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
 						self.file_path = pdb_file
 			else:
-				print "Found Rosetta minimized structure file %s" % (self.filename + '_0001')
+				print "\n\n\nUsing Rosetta minimized structure %s to search for ligand binding pocket." % (self.filename + '_0001')
 				for pdb_file in pdb_files:
 					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
 						self.file_path = pdb_file
@@ -146,9 +146,12 @@ class LigandBindingSite:
 		self._find_ligand()
 		p = PDBParser(QUIET=True)
 		if self.out_filename == '':
-			print "No ligand found for %s" % self.filename
+			pass
+			#print "No ligand found for %s" % self.filename
 		else:
 			structure = p.get_structure('ligand', self.out_filename)
+			
+
 			chain_ids = ['A', 'B', 'C', 'D', 'X']
 			for entry in chain_ids:
 				try:
@@ -191,7 +194,7 @@ class LigandBindingSite:
 	def get_residues_within_5A(self, centroid='False'):
 		self._get_ligand_coordinates()
 		if self.ligand_centroid == []:
-			print 'No ligand bound to %s' % self.filename
+			print '\nNo ligand bound to %s' % self.filename
 		else:
 			self._get_ligand_name()
 			self._get_file_path(pdb=True)
@@ -255,11 +258,11 @@ class Rosetta:
 				print "Invalid input"
 			elif rosetta_min == True:
 				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					print "Found Rosetta minimized structure file ", (self.filename + '_0001.pdb')
+					print "\nUsing Rosetta minimized structure file %s for locating pockets." % (self.filename + '_0001.pdb')
 					filepath = pdb_file
 			elif refined_pocket == True:
 				if ('pocket0') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					print "Found pocket file pocket0.pdb"
+					print "Done locating pocket in ", self.filename
 					filepath = pdb_file
 			else:
 				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
@@ -411,7 +414,7 @@ class Rosetta:
 		combos = itertools.combinations(resnums, 2)
 		results = []
 		for combo in combos:
-			print "combo is:", combo
+			#print "combo is:", combo
 			res1, res2 = combo[0], combo[1]
 			self._pocket_finder(filepath, combo)
 			score = self._get_score()
@@ -527,10 +530,14 @@ class MutantListMaker:
 		filepath = self._get_filepath('', pdb_file=True)
 		p = PDBParser(QUIET=True)
 		structure = p.get_structure('protein', filepath)
-		chain = structure[0]['A']
-		for residue in chain.get_residues():
-			if str(residue.id[1]) in self.resnums:
-				res_mapping.append((self.codes[residue.resname], residue.id[1]))
+		for chain in structure.get_chains():
+			chain = structure[0][chain.id]
+			for residue in chain.get_residues():
+				if str(residue.id[1]) in self.resnums:
+					if residue.resname not in amino_acids.longer_names.keys():
+						pass
+					else:
+						res_mapping.append((chain.id, self.codes[residue.resname], residue.id[1]))
 		return res_mapping
 
 	def _get_mutants(self, res_mapping):
@@ -547,12 +554,14 @@ class MutantListMaker:
 		out = open(out_file, 'w')
 		for key_tuple in mutant_dict:
 			for aa in mutant_dict[key_tuple]:
-				out.write('A ' + str(key_tuple[0]) + ' ' + str(key_tuple[1]) + ' ' + aa + '\n')
+				out.write(str(key_tuple[0]) + ' ' + str(key_tuple[1]) + ' ' + str(key_tuple[2]) + ' ' + aa + '\n')
 		out.close()
 
-	def generate_mutant_list(self, pocketres=True, lpocket=True, SurfRes=True):
+	def generate_mutant_list(self, pocketres=False, lpocket=False, SurfRes=False):
 		if pocketres == True and lpocket == True and SurfRes == True:
-			#self.handles = ['_pocketres', '_lpocket', '_SurfRes']
+			self.handles = ['_pocketres', '_lpocket', '_SurfRes']
+			self._get_resnums()
+		if pocketres == True and lpocket == True:
 			self.handles = ['_pocketres', '_lpocket']
 			self._get_resnums()
 		res_mapping = self._get_resmapping()
@@ -593,7 +602,7 @@ class DDGMonomer:
 
 class SurfaceResidues:
 	def __init__(self, pdb_code):
-		print "Calculating solvent accessible surface area using POPS...."
+		print "\n\nCalculating solvent accessible surface area using POPS...."
 		self.dir_path = os.getcwd() + '/pops_results'
 		self._mkdir()
 		self.filename = pdb_code
@@ -639,9 +648,10 @@ class SurfaceResidues:
 						modres_list.append((str(residue.id[1]), residue.resname))
 						swapped_list.append((str(residue.id[1]), amino_acids.modres[residue.resname]))
 		if self.found_modres:
-			print 'Modified residues found in structures:', modres_list
-			print 'Swapping modified residues with canonical residues in PDB for SASA calculation.'
-			print 'Swapped residues are: ', swapped_list
+			print '\nIdentified modified amino acids in structure %s' % self.filename
+			print '\nModified residues found in structures:', modres_list
+			print '\n\nSwapping modified residues with canonical residues in PDB for SASA calculation.'
+			print '\nSwapped residues are: ', swapped_list
 			pdb_editor = EditPDB(self.filename)
 			pdb_editor.edit_resname(modres_list, '_0001_edit_modres.pdb')
 
@@ -692,7 +702,8 @@ class SurfaceResidues:
 		#return self.SASA_dict
 
 	def write_resi_sasa_output(self):
-		self._build_SASA_dict()
+		if self.SASA_dict == {}:
+			self._build_SASA_dict()
 		sasa_b_factor_filename = os.getcwd() + '/' + self.filename + '_sasa.txt'
 		output_b_factors = open(sasa_b_factor_filename, 'w')
 		for residue_position in self.SASA_dict[self.filename]:
@@ -701,7 +712,8 @@ class SurfaceResidues:
 		output_b_factors.close()
 
 	def write_frac_sasa_output(self):
-		self._build_SASA_dict()
+		if self.SASA_dict == {}:
+			self._build_SASA_dict()
 		sasa_b_factor_filename = os.getcwd() + '/' + self.filename + '_fracsasa.txt'
 		output_b_factors = open(sasa_b_factor_filename, 'w')
 		for residue_position in self.SASA_dict[self.filename]:
@@ -730,7 +742,9 @@ class SurfaceResidues:
 				for resi_position, SASA_info_list in self.SASA_dict[pdb_code].iteritems():
 					if float(SASA_info_list[3]) > threshold:
 						surface_residues.append(SASA_info_list[0] + '\t' + resi_position)
-		print "Surface residues are: ", [line.split('\t') for line in surface_residues]
+		print "\nResidues with greater than %s %% solvent accessible surface area are: " % (str(float(threshold) * 100))
+		for line in surface_residues:
+			print line.split('\t')
 		return surface_residues
 
 
