@@ -2,7 +2,8 @@ import os
 import urllib2
 import subprocess
 import shutil
-from Bio.PDB import PDBList, PDBParser
+from Bio.PDB import PDBList, PDBParser, MMCIFParser
+from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from util import FileHandlers
 from prody import fetchPDBviaFTP, parsePDB, writePDB
 import numpy
@@ -58,25 +59,112 @@ class PDBFromUniprot:
 
 
 class CIFFromUniprot:
-	def __init__(self):
-		pass
+	def __init__(self, pdb_code):
+		self.pdb_dir = os.getcwd() + '/database/pdbs/cif'
+		self.filename = pdb_code
+		self.zipped_filepath = self.pdb_dir + '/' + pdb_code + '.cif.gz'
 
-	def fetch_mmCIF(self, pdb_code, pdb_dir):
-		fetchPDBviaFTP(pdb_code, format='cif', folder=pdb_dir)
+	def _get_mmCIF(self):
+		fetchPDBviaFTP(self.filename, format='cif', folder=self.pdb_dir)
 
-	def unzip_mmCIF(self, gz_file):
-		cmd = ['gunzip -d ' + gz_file]
+	def _unzip_mmCIF(self):
+		cmd = ['gunzip -d ' + self.zipped_filepath]
 		subprocess.call(cmd, shell=True)
 
-	def rename_mmCIF_file(self, cif_file):
-		split_path = cif_file.split('/')
-		name = split_path[-1].split('.')
-		new_name = name[0].upper() + '.cif'
-		split_path[-1] = new_name
-		new_path = '/'.join(split_path)
-		shutil.copyfile(cif_file, new_path)
-		os.remove(cif_file)	
+	def _rename_mmCIF_file(self):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		cif_files = file_handlers.find_files(file_paths, 'cif')
+		for cif_file in cif_files:
+			if self.filename == (file_handlers.get_file_name(cif_file).split('.')[0]).upper():
+				print "Downloaded cif file for %s" % self.filename	
 
+	def fetch_mmCIF(self):
+		self._get_mmCIF()
+		self._unzip_mmCIF()
+		self._rename_mmCIF_file()
+
+
+class CIFFParser:
+	def __init__(self, pdb_code):
+		self.filename = pdb_code
+
+	def print_dict(self):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		cif_files = file_handlers.find_files(file_paths, 'cif')
+		for cif_file in cif_files:
+			if self.filename == file_handlers.get_file_name(cif_file).split('.')[0]:
+				parser = MMCIFParser()
+				#structure = parser.get_structure('protein', self.filename)
+				mmcif_dict = MMCIF2Dict(cif_file)
+				for key in mmcif_dict:
+					pass
+					#print 'key:', key
+					#print 'value:', mmcif_dict[key]
+
+class HeaderParser:
+	def __init__(self, pdb_code):
+		self.filename = pdb_code
+
+	def get_header_dict(self):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		pdb_files = file_handlers.find_files(file_paths, 'pdb')
+		for pdb_file in pdb_files:
+			if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+				atoms, header = parsePDB(pdb_file, header=True)
+		return header
+
+class PDBPreProcessor:
+	## Preprocessor performs several key steps required before picking target mutation sites
+	# 1. Parse header using ProDy to find how many molecules are in the asymmetric unit and which chains belong to which component of the asymmetric unit
+	# 2. Clean pdb using Rosetta's python script 'clean_pdb.py' as-> clean_pdb.py code.pdb AB where 'AB' are the chains discovered in the previous step
+	# 3. The previous step also outputs a fasta file for each chain that will be used later in the pipeline for matching sequence changes to the correct residue numbering of the genomic variant
+	# 4. Minimizes the cleaned pdb file using the Rosetta Minimizer. The resulting file (appended with '_0001.pdb') will be used for all target picking steps
+	
+	### There is a problem here. clean_pdb.py removes hetatms. These hetatms need to remain in place for the LigandBinidngSite to work.
+	### Use pdb_renumber.py --preserve input.pdb output.pdb for LigandBindingSite
+
+	def __init__(self, pdb_code):
+		self.filename = pdb_code
+		self.file_path = ''
+		self.chains = ''
+
+	def _get_file_path(self, cleaned=False):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		pdb_files = file_handlers.find_files(file_paths, 'pdb')
+		if cleaned == True:
+			for pdb_file in pdb_files:
+				if (self.filename + '_' + self.chains) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					self.file_path = pdb_file
+		else:
+			for pdb_file in pdb_files:
+				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					self.file_path = pdb_file
+
+	def _count_structures_in_asymmetric_unit(self):
+		header_parser = HeaderParser(self.filename)
+		header = header_parser.get_header_dict
+		number_of_structures = len(header['biomoltrans'])
+		self.chains = ''.join(header['biomoltrans']['1'])
+		return number_of_structures, chains
+
+	def _run_clean_pdb(self, chains):
+		cmd = ['python ~/rosetta/tools/protein_tools/scripts/clean_pdb.py ' + self.filename + self.chains]
+		subprocess.call(cmd, shell=True)
+
+	def _run_rosetta_minimizer(self):
+		cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + self.file_path + ' -ignore_unrecognized_res']
+		subprocess.call(cmd, shell=True)
+
+	def process(self):
+		number_of_structures = self._count_structures_in_asymmetric_unit()
+		self._run_clean_pdb()
+		self._get_file_path(cleaned=True)
+		self._run_rosetta_minimizer()
+		
 
 class LigandBindingSite:
 	def __init__(self, pdb_code):
@@ -92,7 +180,6 @@ class LigandBindingSite:
 		self.all_ligand_atoms = []
 
 	def _get_file_path(self, ligand=False, pdb=False):
-		#os.chdir("./database/pdbs/pdb")
 		self.file_path = ''
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
@@ -108,7 +195,6 @@ class LigandBindingSite:
 				file_names.append(found)
 				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
 					current_pdb = pdb_file
-					#print "current_pdb", current_pdb
 			if (self.filename + '_0001') not in file_names:
 				# Run Rosetta Minimizer
 				cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + current_pdb + ' -ignore_unrecognized_res']
@@ -117,7 +203,6 @@ class LigandBindingSite:
 				file_paths = file_handlers.search_directory()
 				pdb_files = file_handlers.find_files(file_paths, 'pdb')
 				for pdb_file in pdb_files:
-					#print "pdb_file:", pdb_file
 					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
 						self.file_path = pdb_file
 			else:
@@ -126,21 +211,20 @@ class LigandBindingSite:
 					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
 						self.file_path = pdb_file
 
-		#os.chdir("../../../")
 
 	def _find_ligand(self):
 		self._get_file_path(ligand=True)
 		protein = parsePDB(self.file_path)
-		try:
-			seq = protein['A'].getSequence()
-		except:
-			pass
-		else:
-			ligand = protein.select('not protein and not water')
-			repr(ligand)
-			if ligand:
-				self.out_filename = self.file_path.split('.')[0] + '_ligand.pdb'
-				writePDB(self.out_filename, ligand)
+		#try:
+		#	seq = protein['A'].getSequence()
+		#except:
+		#	pass
+		#else:
+		ligand = protein.select('not protein and not water')
+		repr(ligand)
+		if ligand:
+			self.out_filename = self.file_path.split('.')[0] + '_ligand.pdb'
+			writePDB(self.out_filename, ligand)
 
 	def _get_ligand_coordinates(self):
 		self._find_ligand()
@@ -150,14 +234,11 @@ class LigandBindingSite:
 			#print "No ligand found for %s" % self.filename
 		else:
 			structure = p.get_structure('ligand', self.out_filename)
-			
-
-			chain_ids = ['A', 'B', 'C', 'D', 'X']
-			for entry in chain_ids:
+			for chain in structure.get_chains():
 				try:
-					chain = structure[0][entry]
+					chain = structure[0][chain.id]
 					if chain:
-						print "Found ligand on chain %s" % entry
+						print "Found ligand on chain %s" % chain.id
 						for residue in chain.get_residues():
 							if residue.resname not in self.ignore:
 								atom_pos_array = []
@@ -175,10 +256,9 @@ class LigandBindingSite:
 	def _get_ligand_name(self):
 		p = PDBParser(QUIET=True)
 		ligand = p.get_structure('ligand', self.out_filename)
-		chain_ids = ['A', 'B', 'C', 'D', 'X']
-		for entry in chain_ids:
+		for chain in structure.get_chains():
 			try:
-				chain = ligand[0][entry]
+				chain = ligand[0][chain.id]
 				for residue in chain.get_residues():
 					if residue.resname in self.ignore:
 						pass
@@ -200,7 +280,6 @@ class LigandBindingSite:
 			self._get_file_path(pdb=True)
 			p = PDBParser(QUIET=True)
 			structure = p.get_structure('protein', self.file_path)
-			#chain_ids = ['A', 'B', 'C', 'D', 'X']
 			for entry in self.ligand_chain:
 				try:
 					chain = structure[0][entry]
@@ -228,17 +307,16 @@ class LigandBindingSite:
 
 
 	def write_residue_output(self):
-		#os.chdir('./database/pdbs/pdb')
 		active_site_filename = os.getcwd() + '/' + self.filename + '_lpocket.txt'
 		output_residues = open(active_site_filename, 'w')
 		for line in self.ligand_binding_pocket:
 			output_residues.write(line.split('\t')[1] + '\t' + str(100.00) + '\n')
 		output_residues.close()
-		#os.chdir('../../../')
 
 
 class Rosetta:
 	def __init__(self, pdb_code):
+		print "\n\n\nUsing Rosetta minimized structure for locating pockets."
 		self.filename = pdb_code
 		self.pdb = []
 		self.standard_res = [
@@ -258,7 +336,7 @@ class Rosetta:
 				print "Invalid input"
 			elif rosetta_min == True:
 				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					print "\nUsing Rosetta minimized structure file %s for locating pockets." % (self.filename + '_0001.pdb')
+					#print "\nUsing Rosetta minimized structure file %s for locating pockets." % (self.filename + '_0001.pdb')
 					filepath = pdb_file
 			elif refined_pocket == True:
 				if ('pocket0') == file_handlers.get_file_name(pdb_file).split('.')[0]:
@@ -414,12 +492,14 @@ class Rosetta:
 		combos = itertools.combinations(resnums, 2)
 		results = []
 		for combo in combos:
-			#print "combo is:", combo
 			res1, res2 = combo[0], combo[1]
 			self._pocket_finder(filepath, combo)
 			score = self._get_score()
 			results.append((combo, score))
 		sorted_results = self._sort_scores(results, plt=False)
+		print 'sorted_results', sorted_results
+		if sorted_results[0][1] == 0:
+			pass
 		self._pocket_finder(filepath, list(sorted_results[-1][0]), output=True)
 
 	def _get_pocket_coordinates(self):
@@ -460,17 +540,32 @@ class Rosetta:
 					pass
 		return pocket_residues
 
+	def _set_filtered_pocket_scores(self, data_tuple, threshold):
+		filtered_data = []
+		for item in data_tuple:
+			if item[0] >= threshold:
+				filtered_data.append(data)
+		while filtered_data == [] and threshold > 0:
+			threshod = threshold - 0.1
+			filtered_data = self._set_filtered_pocket_scores(data_tuple, threshold)
+		if filtered_data == []:
+			print "Failed to find pocket"
+		return filtered_data
+
 	def find_pockets(self):
 		data = self._scan_surface()
 		sorted_data = self._sort_scores(data, plt=False)
 		highest_score = float(sorted_data[-1][1])
 		lowest_score = float(sorted_data[0][1])
-		filtered_data = []
+		data_tuples = []
 		for data in sorted_data:
 			frac = abs((lowest_score - float(data[1])) / (highest_score - lowest_score))
-			if frac >= 0.50:
-				filtered_data.append(data)
-		self._refine_pockets(filtered_data)
+			data_tuples.append((frac, data))
+		filtered_data = self._set_filtered_pocket_scores(data_tuple, 0.90)
+		# alternative approach that only uses high score from surface residue scan
+		self._pocket_finder(filepath, filtered_data[-1], output=True)
+		# original method that used best pocket from pairs of high scoring surface residues
+		#self._refine_pockets(filtered_data)
 		self._write_scores(filtered_data, '_pockets.txt')
 		self._write_pocket_residues('_pocketres.txt')
 
