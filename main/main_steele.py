@@ -41,12 +41,12 @@ def main():
 	uniprot_ids = ['P0AB67', 'P27306', 'P0A7B3', 'P0A9E2', 'P0AFG8', 'P0AFG3', 'P0AFG6', 'P33940', 'P0AC53', 'H6N162']
 	genbank_ids = ['81171066', '11182439', '67470903', '71162387', '84027826', '84027822', '84027824', '2506692', '81175321', '170180374']
 	
-	pdb_codes = ['2XUVABCD', '1Y00AB']
+	pdb_codes = ['1W36DBCY', '2ZHG']
 	pops_issue = []
-	pocket_finder_issue = ['1W36DBCY', '2ZHG']
-	ligand_issue = ['2ZHG']
+	pocket_finder_issue = []
+	ligand_issue = []
 	cleaned_file_mapping = {'1W36' : '1W36DBCY', '4B2N' : '4B2NA', '1U60' : '1U60AB', '2XUV' : '2XUVABCD', '1Y00' : '1Y00AB'}
-	done = ['1X15', '4N72', '4JDR', '2CMD', '2ZYA', '3NBU', '4TWZ', '1SRU', '1S7C', '4B2NA', '2J1N', '1U60AB', '1YAC']
+	done = ['1X15', '4N72', '4JDR', '2CMD', '2ZYA', '3NBU', '4TWZ', '1SRU', '1S7C', '4B2NA', '2J1N', '1U60AB', '1YAC', '2XUVABCD', '1Y00AB']
 	# Download .pdb using pdb_id
 	# THIS WORKS. DO NOT CHANGE
 #	pdb_getter = PDBFromUniprot()
@@ -58,8 +58,11 @@ def main():
 		print "\n\nIdentifying residues of interest for %s" % pdb_code
 		# Download .pdb using pdb_id
 		# THIS WORKS. DO NOT CHANGE
+#		pdb_getter = PDBFromUniprot()
 #		pdb_getter.fetch_pdb(pdb_code)
 		pdb_editor = EditPDB(pdb_code)
+		#cif_getter = CIFFromUniprot()
+		#cif_getter.fetch_mmCIF()
 #
 ## Structural pipeline:
 #

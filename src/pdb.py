@@ -215,11 +215,6 @@ class LigandBindingSite:
 	def _find_ligand(self):
 		self._get_file_path(ligand=True)
 		protein = parsePDB(self.file_path)
-		#try:
-		#	seq = protein['A'].getSequence()
-		#except:
-		#	pass
-		#else:
 		ligand = protein.select('not protein and not water')
 		repr(ligand)
 		if ligand:
@@ -256,7 +251,7 @@ class LigandBindingSite:
 	def _get_ligand_name(self):
 		p = PDBParser(QUIET=True)
 		ligand = p.get_structure('ligand', self.out_filename)
-		for chain in structure.get_chains():
+		for chain in ligand.get_chains():
 			try:
 				chain = ligand[0][chain.id]
 				for residue in chain.get_residues():
@@ -264,7 +259,7 @@ class LigandBindingSite:
 						pass
 					else:
 						self.ligands.append(residue.resname)
-						self.ligand_chain.append(entry)
+						self.ligand_chain.append(chain.id)
 				print "Ligands found: ", self.ligands
 				return self.ligands
 			except KeyError:
@@ -280,9 +275,9 @@ class LigandBindingSite:
 			self._get_file_path(pdb=True)
 			p = PDBParser(QUIET=True)
 			structure = p.get_structure('protein', self.file_path)
-			for entry in self.ligand_chain:
+			for chain in structure.get_chains():
 				try:
-					chain = structure[0][entry]
+					chain = structure[0][chain.id]
 					ligand_binding_pocket = []
 					for residue in chain.get_residues():
 						for atom in residue:
@@ -303,7 +298,7 @@ class LigandBindingSite:
 					print "Residues in ligand binding pocket: ", [line.split('\t') for line in self.ligand_binding_pocket]
 					return self.ligand_binding_pocket
 				except KeyError:
-					print 'No ligand found in chain %s of %s' % (entry, self.filename)
+					print 'No ligand found in chain %s of %s' % (chain.id, self.filename)
 
 
 	def write_residue_output(self):
@@ -408,9 +403,17 @@ class Rosetta:
 		out.close()
 
 	def _write_pocket_residues(self, handle):
-		pocket_residues = self._get_pocket_residues()
 		out_file = os.getcwd() + '/' + self.filename + handle
 		out = open(out_file, 'w')
+		pocket_residues = self._get_pocket_residues()
+		#pdb_file = self._get_pdb(rosetta_min=True)
+		#p = PDBParser(QUIET=True)
+		#structure = p.get_structure('protein', pdb_file)
+		#for chain in structure.get_chains():
+		#	chain = structure[0][chain.id]
+		#	for residue in chain.get_residues():
+		#		if str(residue.id[1]) in pocket_residues and residue.resname in self.standard_res:
+		#			out.write(str(residue.id[1]) + '\t' + str(pocket_residues[str(residue.id[1])]) + '\n')
 		for resnum in pocket_residues:
 			out.write(str(resnum) + '\t' + str(pocket_residues[resnum]) + '\n')
 		out.close()
@@ -431,9 +434,13 @@ class Rosetta:
 		return sorted_data
 
 	def _pocket_finder(self, filepath, residue_number, output=False):
-		if len(residue_number) == 1:
+		if len(residue_number) == 1 and output == False:
 			chain = self._get_chain_id(filepath, residue_number[0])
 			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':' + chain + ' -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+			subprocess.call(cmd, shell=True)
+		elif len(residue_number) == 1 and output == True:
+			chain = self._get_chain_id(filepath, residue_number[0])
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':' + chain + ' -pocket_dump_pdbs -pocket_num_angles 100 | grep Largest >> pocket_score.out']
 			subprocess.call(cmd, shell=True)
 		elif len(residue_number) == 2 and output == False:
 			chain1 = self._get_chain_id(filepath, residue_number[0])
@@ -531,7 +538,7 @@ class Rosetta:
 		for chain in structure.get_chains():
 			chain = structure[0][chain.id]
 			for residue in chain.get_residues():
-				if residue.id[0] == ' ':
+				if residue.id[0] == ' ' and residue.resname in self.standard_res:
 					for atom in residue:
 						for coordinate in pocket_coordinates:
 							if abs(float(atom.get_coord()[0]) - float(coordinate[0])) <= 2.5 and abs(float(atom.get_coord()[1]) - float(coordinate[1])) <= 2.5 and abs(float(atom.get_coord()[2]) - float(coordinate[2])) <= 2.5:
@@ -540,17 +547,22 @@ class Rosetta:
 					pass
 		return pocket_residues
 
-	def _set_filtered_pocket_scores(self, data_tuple, threshold):
+	def _set_filtered_pocket_scores(self, data_tuples, BestScore=False):
 		filtered_data = []
-		for item in data_tuple:
-			if item[0] >= threshold:
-				filtered_data.append(data)
-		while filtered_data == [] and threshold > 0:
-			threshod = threshold - 0.1
-			filtered_data = self._set_filtered_pocket_scores(data_tuple, threshold)
-		if filtered_data == []:
-			print "Failed to find pocket"
-		return filtered_data
+		if BestScore == False:
+			threshold = 0.90
+			for item in data_tuples:
+				if item[0] >= threshold:
+					filtered_data.append(item[1])
+			while filtered_data == [] and threshold > 0:
+				threshod = threshold - 0.1
+				filtered_data = self._set_filtered_pocket_scores(data_tuples, threshold)
+			if filtered_data == []:
+				print "Failed to find pocket"
+			return filtered_data
+		else:
+			filtered_data.append(data_tuples[-1][1])
+			return filtered_data
 
 	def find_pockets(self):
 		data = self._scan_surface()
@@ -561,10 +573,14 @@ class Rosetta:
 		for data in sorted_data:
 			frac = abs((lowest_score - float(data[1])) / (highest_score - lowest_score))
 			data_tuples.append((frac, data))
-		filtered_data = self._set_filtered_pocket_scores(data_tuple, 0.90)
-		# alternative approach that only uses high score from surface residue scan
-		self._pocket_finder(filepath, filtered_data[-1], output=True)
-		# original method that used best pocket from pairs of high scoring surface residues
+		## alternative approach uses high score from surface residue scan
+		filepath = self._get_pdb(rosetta_min=True)
+		best_scoring_residue = []
+		best_scoring_residue.append(data_tuples[-1][1][0])
+		self._pocket_finder(filepath, best_scoring_residue, output=True)
+		filtered_data = self._set_filtered_pocket_scores(data_tuples, BestScore=True)
+		## original method uses best pocket from pairs of high scoring surface residues
+		#filtered_data = self._set_filtered_pocket_scores(data_tuples)
 		#self._refine_pockets(filtered_data)
 		self._write_scores(filtered_data, '_pockets.txt')
 		self._write_pocket_residues('_pocketres.txt')
