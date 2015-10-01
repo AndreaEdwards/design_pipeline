@@ -2,6 +2,7 @@ import os
 import urllib2
 import subprocess
 import shutil
+from Bio import SeqIO
 from Bio.PDB import PDBList, PDBParser, MMCIFParser
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from util import FileHandlers
@@ -88,20 +89,98 @@ class CIFFromUniprot:
 class CIFFParser:
 	def __init__(self, pdb_code):
 		self.filename = pdb_code
+		self.filtered_pdb_genes = []
+		self.chains = []
+		self.genes = []
+		self.organisms = []
+		self.pdb_sequences = []
 
-	def print_dict(self):
+	def _write_cif_dict(self, mmcif_dict):
+		outfile = os.getcwd() + '/' + self.filename + '_mmCIFDict'
+		output = open(outfile, 'w')
+		for key in mmcif_dict:
+			if isinstance(mmcif_dict[key], str):
+				output.write('key:\n'  + key + '\n' + 'value:\n' + mmcif_dict[key] + '\n')
+			elif isinstance(mmcif_dict[key], list):
+				output.write('key:\n'  + key + '\n' + 'value:\n' + ' '.join(mmcif_dict[key]) + '\n')
+		output.close()
+
+	def _is_real_gene(self, genes):
+		genome=SeqIO.read('/Users/andrea/repositories/design_pipeline/main/database/gb/NC_000913.3.gb','genbank')
+		gene_list = []
+		for feature in genome.features:
+		    for key, value in feature.qualifiers.iteritems():
+		        if key=='gene':
+		        	gene_list.append(value[0].upper())
+		if isinstance(genes, str):
+			pdb_genes = [genes.upper()]
+		elif isinstance(genes, list):
+			pdb_genes = [gene.upper() for gene in genes]
+		filtered_pdb_genes = []
+		for gene in pdb_genes:
+			if gene in gene_list:
+				filtered_pdb_genes.append(gene)
+		if filtered_pdb_genes != []:
+			self.filtered_pdb_genes = filtered_pdb_genes
+			return True if set(filtered_pdb_genes).issubset(set(gene_list)) else False
+		else:
+			return False
+
+	def get_gene_annotations(self):
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
 		cif_files = file_handlers.find_files(file_paths, 'cif')
 		for cif_file in cif_files:
 			if self.filename == file_handlers.get_file_name(cif_file).split('.')[0]:
 				parser = MMCIFParser()
-				#structure = parser.get_structure('protein', self.filename)
 				mmcif_dict = MMCIF2Dict(cif_file)
-				for key in mmcif_dict:
-					pass
-					#print 'key:', key
-					#print 'value:', mmcif_dict[key]
+				self._write_cif_dict(mmcif_dict)
+				if self._is_real_gene(mmcif_dict['_entity_src_gen.pdbx_gene_src_gene']):
+					genes = self.filtered_pdb_genes
+				elif self._is_real_gene(mmcif_dict['_entity_name_com.name']):
+					genes = self.filtered_pdb_genes
+				else:
+					print 'cannot determine gene names from cif file'
+				if isinstance(mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name'], str):
+					organisms = [mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name']]
+				else:
+					organisms = mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name']
+				if isinstance(mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'], list):
+					empty = set(['?'])
+					pdb_sequences = mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'][:len(genes)] if not set(mmcif_dict['_struct_ref.pdbx_seq_one_letter_code']).issubset(empty) else None
+				else:
+					pdb_sequences = [mmcif_dict['_struct_ref.pdbx_seq_one_letter_code']] if not '?' == mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'] else None
+				if pdb_sequences == None:
+					if isinstance(mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'], list):
+						empty = set(['?'])
+						pdb_sequences = mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'][:len(genes)] if not set(mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can']).issubset(empty) else None
+					else:
+						pdb_sequences = [mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can']] if not '?' == mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'] else None
+				if isinstance(mmcif_dict['_struct_ref_seq.pdbx_strand_id'], list):
+					chains = mmcif_dict['_struct_ref_seq.pdbx_strand_id'][:len(genes)]
+				else:
+					chains = [mmcif_dict['_struct_ref_seq.pdbx_strand_id']]
+		self.chains = chains
+		self.genes = genes
+		self.organisms = organisms
+		self.pdb_sequences = pdb_sequences
+		return chains, genes, organisms, pdb_sequences
+
+	def collate_sequence_annotations(self):
+		sequence_annotations = []
+		for chain, gene, organism, pdb_sequence in zip(self.chains, self.genes, self.organisms, self.pdb_sequences):
+			sequence_annotations.append((chain, gene, organism, pdb_sequence))
+		#print sequence_annotations
+		return sequence_annotations
+
+	def write_fasta(self, sequence_annotations):
+		for i in range(len(sequence_annotations)):
+			sequence_id = sequence_annotations[i][1] + '_' + self.filename + '_chain-' + sequence_annotations[i][0]
+			outfile = os.getcwd() + '/' + sequence_id + '.fasta'
+			output = open(outfile, 'w')
+			output.write('>' + sequence_id + '\n' + sequence_annotations[i][3] + '\n')
+			output.close()
+
 
 class HeaderParser:
 	def __init__(self, pdb_code):
@@ -114,6 +193,7 @@ class HeaderParser:
 		for pdb_file in pdb_files:
 			if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
 				atoms, header = parsePDB(pdb_file, header=True)
+		#print header
 		return header
 
 class PDBPreProcessor:
@@ -131,13 +211,17 @@ class PDBPreProcessor:
 		self.file_path = ''
 		self.chains = ''
 
-	def _get_file_path(self, cleaned=False):
+	def _get_file_path(self, cleaned=False, minimized=False):
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
 		pdb_files = file_handlers.find_files(file_paths, 'pdb')
 		if cleaned == True:
 			for pdb_file in pdb_files:
 				if (self.filename + '_' + self.chains) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					self.file_path = pdb_file
+		elif minimized == True:
+			for pdb_file in pdb_files:
+				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
 					self.file_path = pdb_file
 		else:
 			for pdb_file in pdb_files:
@@ -164,6 +248,13 @@ class PDBPreProcessor:
 		self._run_clean_pdb()
 		self._get_file_path(cleaned=True)
 		self._run_rosetta_minimizer()
+
+	# This does NOT work
+	#def get_fasta(self):
+	#	self._get_file_path(minimized=True)
+	#	for chain in self.chains:
+	#		cmd = ['python ~/rosetta/tools/protein_tools/scripts/get_fasta_from_pdb.py ' + (self.filename + '_0001.pdb ') + chain + ' ' + (self.filename + '_' + chain + '.fasta')]
+	#		subprocess.call(cmd, shell=True)
 		
 
 class LigandBindingSite:
