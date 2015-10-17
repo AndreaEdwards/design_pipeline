@@ -13,16 +13,27 @@ from operator import itemgetter
 import matplotlib.pyplot as plt
 import itertools
 import amino_acids
+import settings
 
 class PDBFromUniprot:
 	def __init__(self):
-		self.pdb_dir = os.getcwd() + '/database/pdbs/pdb'
+		#self.pdb_dir = os.getcwd() + '/results/' ## running from server
+		self.pdb_dir = os.getcwd() + '/database/pdbs/pdb' ## running from CLI
 
 	def fetch_pdb(self, pdb_code):
-		pdb_list = PDBList()
-		pdb_list.retrieve_pdb_file(pdb_code, pdir=self.pdb_dir)
-		self._rename_pdb_file(pdb_code)
+		if self._isempty_pdb(pdb_code):
+			fetchPDBviaFTP(pdb_code, format='pdb', folder=self.pdb_dir)
+			self._rename_pdb_file(pdb_code)
 	
+	def _isempty_pdb(self, pdb_code):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		pdb_files = file_handlers.find_files(file_paths, 'pdb')
+		file_names = []
+		for pdb_file in pdb_files:
+			file_names.append(file_handlers.get_file_name(pdb_file).split('.')[0])
+		return True if pdb_code.upper() not in file_names else False
+
 	def get_pdb_id(self, queryText):
 		url = 'http://www.rcsb.org/pdb/rest/search'
 		print "querying PDB..."
@@ -40,30 +51,55 @@ class PDBFromUniprot:
 			PDB_codes = []
 			return PDB_codes
 
-	def _get_downloaded_file_path(self, pdb_code):
+	def _get_downloaded_file_path(self, pdb_code, prody=False):
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
-		ent_files = file_handlers.find_files(file_paths, 'ent')
-		for ent_file in ent_files:
-			if pdb_code == file_handlers.get_file_name(ent_file).split('.')[0].lstrip('pdb').upper():
-				return ent_file
+		if prody == False:
+			ent_files = file_handlers.find_files(file_paths, 'ent')
+			for ent_file in ent_files:
+				if pdb_code == file_handlers.get_file_name(ent_file).split('.')[0].lstrip('pdb').upper():
+					return ent_file
+		else:
+			pdb_files = file_handlers.find_files(file_paths, 'pdb')
+			for pdb_file in pdb_files:
+				if pdb_code.lower() == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					return pdb_file
+
+	def _unzip_file(self, pdb_code):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		zip_files = file_handlers.find_files(file_paths, 'gz')
+		for zip_file in zip_files:
+			if pdb_code == file_handlers.get_file_name(zip_file).split('.')[0].upper():
+				cmd = ['gunzip -d ' + zip_file]
+				subprocess.call(cmd, shell=True)
 	
 	def _rename_pdb_file(self, pdb_code):
-		pdb_file = self._get_downloaded_file_path(pdb_code)
+		self._unzip_file(pdb_code)
+		pdb_file = self._get_downloaded_file_path(pdb_code, prody=True)
 		split_path = pdb_file.split('/')
 		name = split_path[-1].split('.')
 		new_name = name[0].lstrip('pdb').upper() + '.pdb'
 		split_path[-1] = new_name
 		new_path = '/'.join(split_path)
-		shutil.copyfile(pdb_file, new_path)
-		os.remove(pdb_file)	
+		os.rename(pdb_file, new_path)		
 
 
 class CIFFromUniprot:
 	def __init__(self, pdb_code):
-		self.pdb_dir = os.getcwd() + '/database/pdbs/cif'
+		self.pdb_dir = os.getcwd() + '/database/pdbs/cif' # when running from CLI
+		#self.pdb_dir = os.getcwd() + '/results/' # when running on server
 		self.filename = pdb_code
 		self.zipped_filepath = self.pdb_dir + '/' + pdb_code + '.cif.gz'
+
+	def _isempty_mmCIF(self):
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		cif_files = file_handlers.find_files(file_paths, 'cif')
+		file_names = []
+		for cif_file in cif_files:
+			file_names.append(file_handlers.get_file_name(cif_file).split('.')[0])
+		return True if self.filename not in file_names else False
 
 	def _get_mmCIF(self):
 		fetchPDBviaFTP(self.filename, format='cif', folder=self.pdb_dir)
@@ -81,9 +117,10 @@ class CIFFromUniprot:
 				print "Downloaded cif file for %s" % self.filename	
 
 	def fetch_mmCIF(self):
-		self._get_mmCIF()
-		self._unzip_mmCIF()
-		self._rename_mmCIF_file()
+		if self._isempty_mmCIF():
+			self._get_mmCIF()
+			self._unzip_mmCIF()
+			self._rename_mmCIF_file()
 
 
 class CIFFParser:
@@ -113,9 +150,33 @@ class CIFFParser:
 		        if key=='gene':
 		        	gene_list.append(value[0].upper())
 		if isinstance(genes, str):
-			pdb_genes = [genes.upper()]
+			pdb_genes = []
+			if len(genes.split('_')) > 1:
+				Genes = genes.split('_')
+				for gene in Genes:
+					pdb_genes.append(gene.upper())
+			elif len(genes.split(',')) > 1:
+				Genes = genes.split(',')
+				for gene in Genes:
+					pdb_genes.append(gene.upper().strip())
+			elif len(genes.split(' ')) > 1:
+				Genes = genes.split(' ')
+				for gene in Genes:
+					pdb_genes.append(gene.upper().strip())
+			else:
+				pdb_genes = [genes.upper()]
 		elif isinstance(genes, list):
-			pdb_genes = [gene.upper() for gene in genes]
+			pdb_genes = []
+			for gene in genes:
+				if len(gene.split('_')) > 1:
+					pdb_genes.append(gene.split('_')[0].upper())
+				elif len(gene.split(',')) > 1:
+					split_gene = [gene.upper().strip() for gene in gene.split(',')]
+					for item in split_gene:
+						pdb_genes.append(item)
+				else:
+					pdb_genes.append(gene.upper())
+			#pdb_genes = [gene.upper() for gene in genes]
 		filtered_pdb_genes = []
 		for gene in pdb_genes:
 			if gene in gene_list:
@@ -126,6 +187,90 @@ class CIFFParser:
 		else:
 			return False
 
+	def _open_file(self, filepath):
+		Data = open(filepath, 'r')
+		data = Data.readlines()
+		Data.close()
+		os.remove(filepath)
+		return data
+
+	def _get_sequence_from_structure(self, genes, chains):
+		sequences = []
+		file_handlers = FileHandlers()
+		file_paths = file_handlers.search_directory()
+		pdb_files = file_handlers.find_files(file_paths, 'pdb')
+		for pdb_file in pdb_files:
+			#if ( self.filename + '_0001' ) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+			if ( self.filename ) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+				for gene, chain in zip(genes, chains):
+					#print gene, chain
+					cmd = ['python ~/repositories/design_pipeline/src/get_fasta_from_pdb.py ' + pdb_file + ' ' + chain + ' ' + (gene + '_' + self.filename + '_chain-' + chain + '.fasta')] 
+					#cmd = ['python ~/rosetta/tools/protein_tools/scripts/get_fasta_from_pdb.py ' + pdb_file + ' ' + chain + ' ' + (gene + '_' + self.filename + '_chain-' + chain + '.fasta')]
+					subprocess.call(cmd, shell=True)
+					filepath = os.getcwd() + '/' + ( gene + '_' + self.filename + '_chain-' + chain + '.fasta' )
+					data = self._open_file(filepath)
+					sequences.append(data[1].strip())
+		return sequences
+
+
+	def _get_genes(self, mmcif_dict):
+		if ( '_entity_src_gen.pdbx_gene_src_gene' in mmcif_dict ) and ( self._is_real_gene(mmcif_dict['_entity_src_gen.pdbx_gene_src_gene']) ):
+			genes = self.filtered_pdb_genes
+		elif ( '_struct_ref.db_code' in mmcif_dict ) and ( self._is_real_gene(mmcif_dict['_struct_ref.db_code']) ):
+			genes = self.filtered_pdb_genes
+		elif ( '_entity_name_com.name' in mmcif_dict ) and ( self._is_real_gene(mmcif_dict['_entity_name_com.name']) ):
+			genes = self.filtered_pdb_genes
+		elif ( '_entity.pdbx_description' in mmcif_dict ) and ( self._is_real_gene(mmcif_dict['_entity.pdbx_description']) ):
+			genes = self.filtered_pdb_genes
+		else:
+			print 'cannot determine gene names from cif file'
+		print genes
+		return genes
+	
+	def _get_organisms(self, mmcif_dict):
+		organisms = None
+		for i in range(3):
+			if i == 0:
+				if ( '_entity_src_gen.pdbx_host_org_scientific_name' in mmcif_dict ): 
+					if isinstance(mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name'], str):
+						empty = set(['?'])
+						organisms = [mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name']] if not set([mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name']]).issubset(empty) else None
+					else:
+						empty = set(['?'])
+						organisms = mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name'] if not set(mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name']).issubset(empty) else None
+				else:
+					pass
+			elif i == 1 and organisms == None:
+				if ( '_entity_src_gen.pdbx_gene_src_scientific_name' in mmcif_dict ):
+					if isinstance(mmcif_dict['_entity_src_gen.pdbx_gene_src_scientific_name'], str):
+						empty = set(['?'])
+						organisms = [mmcif_dict['_entity_src_gen.pdbx_gene_src_scientific_name']] if not set([mmcif_dict['_entity_src_gen.pdbx_gene_src_scientific_name']]).issubset(empty) else None
+					else:
+						empty = set(['?'])
+						organisms = mmcif_dict['_entity_src_gen.pdbx_gene_src_scientific_name'] if not set(mmcif_dict['_entity_src_gen.pdbx_gene_src_scientific_name']).issubset(empty) else None
+				else:
+					pass
+			elif i == 2 and organisms == None:
+				if ( '_entity_src_nat.pdbx_organism_scientific' in mmcif_dict ):
+					if isinstance(mmcif_dict['_entity_src_nat.pdbx_organism_scientific'], str):
+						empty = set(['?'])
+						organisms = [mmcif_dict['_entity_src_nat.pdbx_organism_scientific']] if not set([mmcif_dict['_entity_src_nat.pdbx_organism_scientific']]).issubset(empty) else None
+					else:
+						empty = set(['?'])
+						organisms = mmcif_dict['_entity_src_nat.pdbx_organism_scientific'] if not set(mmcif_dict['_entity_src_nat.pdbx_organism_scientific']).issubset(empty) else None
+				else:
+					pass
+		print organisms
+		return organisms
+
+	def _get_chains(self, mmcif_dict, genes):
+		if isinstance(mmcif_dict['_struct_ref_seq.pdbx_strand_id'], list):
+			chains = mmcif_dict['_struct_ref_seq.pdbx_strand_id'][:len(genes)]
+		else:
+			chains = [mmcif_dict['_struct_ref_seq.pdbx_strand_id']]
+		print chains
+		return chains
+
 	def get_gene_annotations(self):
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
@@ -134,32 +279,23 @@ class CIFFParser:
 			if self.filename == file_handlers.get_file_name(cif_file).split('.')[0]:
 				parser = MMCIFParser()
 				mmcif_dict = MMCIF2Dict(cif_file)
-				self._write_cif_dict(mmcif_dict)
-				if self._is_real_gene(mmcif_dict['_entity_src_gen.pdbx_gene_src_gene']):
-					genes = self.filtered_pdb_genes
-				elif self._is_real_gene(mmcif_dict['_entity_name_com.name']):
-					genes = self.filtered_pdb_genes
-				else:
-					print 'cannot determine gene names from cif file'
-				if isinstance(mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name'], str):
-					organisms = [mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name']]
-				else:
-					organisms = mmcif_dict['_entity_src_gen.pdbx_host_org_scientific_name']
-				if isinstance(mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'], list):
-					empty = set(['?'])
-					pdb_sequences = mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'][:len(genes)] if not set(mmcif_dict['_struct_ref.pdbx_seq_one_letter_code']).issubset(empty) else None
-				else:
-					pdb_sequences = [mmcif_dict['_struct_ref.pdbx_seq_one_letter_code']] if not '?' == mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'] else None
-				if pdb_sequences == None:
-					if isinstance(mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'], list):
-						empty = set(['?'])
-						pdb_sequences = mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'][:len(genes)] if not set(mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can']).issubset(empty) else None
-					else:
-						pdb_sequences = [mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can']] if not '?' == mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'] else None
-				if isinstance(mmcif_dict['_struct_ref_seq.pdbx_strand_id'], list):
-					chains = mmcif_dict['_struct_ref_seq.pdbx_strand_id'][:len(genes)]
-				else:
-					chains = [mmcif_dict['_struct_ref_seq.pdbx_strand_id']]
+				self._write_cif_dict(mmcif_dict) ## for debugging
+				genes = self._get_genes(mmcif_dict)
+				organisms = self._get_organisms(mmcif_dict)
+				chains = self._get_chains(mmcif_dict, genes)
+				pdb_sequences = self._get_sequence_from_structure(genes, chains)
+				## below commented-out code does not work. should remove, but it was such a pain in the ass to write, I can't bear to delete it yet.
+				#if isinstance(mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'], list):
+				#	empty = set(['?'])
+				#	pdb_sequences = mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'][:len(genes)] if not set(mmcif_dict['_struct_ref.pdbx_seq_one_letter_code']).issubset(empty) else None
+				#else:
+				#	pdb_sequences = [mmcif_dict['_struct_ref.pdbx_seq_one_letter_code']] if not '?' == mmcif_dict['_struct_ref.pdbx_seq_one_letter_code'] else None
+				#if pdb_sequences == None:
+				#	if isinstance(mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'], list):
+				#		empty = set(['?'])
+				#		pdb_sequences = mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'][:len(genes)] if not set(mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can']).issubset(empty) else None
+				#	else:
+				#		pdb_sequences = [mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can']] if not '?' == mmcif_dict['_entity_poly.pdbx_seq_one_letter_code_can'] else None
 		self.chains = chains
 		self.genes = genes
 		self.organisms = organisms
@@ -211,62 +347,146 @@ class PDBPreProcessor:
 		self.file_path = ''
 		self.chains = ''
 
-	def _get_file_path(self, cleaned=False, minimized=False):
+	def _get_file_path(self, cleaned=False, minimized=False, test_minimized=False, mmCIF=False):
+		self.file_path = ''
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
-		pdb_files = file_handlers.find_files(file_paths, 'pdb')
-		if cleaned == True:
-			for pdb_file in pdb_files:
-				if (self.filename + '_' + self.chains) == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					self.file_path = pdb_file
-		elif minimized == True:
-			for pdb_file in pdb_files:
-				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					self.file_path = pdb_file
+		if mmCIF == True:
+			cif_files = file_handlers.find_files(file_paths, 'cif')
+			for cif_file in cif_files:
+				if self.filename == file_handlers.get_file_name(cif_file).split('.')[0]:
+					self.file_path = cif_file
 		else:
-			for pdb_file in pdb_files:
-				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					self.file_path = pdb_file
+			pdb_files = file_handlers.find_files(file_paths, 'pdb')
+			if cleaned == True:
+				for pdb_file in pdb_files:
+					if (self.filename + '_' + self.chains) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+						self.file_path = pdb_file
+			elif minimized == True:
+				for pdb_file in pdb_files:
+					if (self.filename + '_' + self.chains + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+						self.file_path = pdb_file
+			elif test_minimized == True:
+				for pdb_file in pdb_files:
+					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+						self.file_path = pdb_file
+			else:
+				for pdb_file in pdb_files:
+					if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+						self.file_path = pdb_file
 
-	def _count_structures_in_asymmetric_unit(self):
+	def count_structures_in_asymmetric_unit(self):
 		header_parser = HeaderParser(self.filename)
-		header = header_parser.get_header_dict
+		header = header_parser.get_header_dict()
+		#print header
 		number_of_structures = len(header['biomoltrans'])
-		self.chains = ''.join(header['biomoltrans']['1'])
-		return number_of_structures, chains
+		#print header['biomoltrans']['1']
+		self.chains = ''.join(header['biomoltrans']['1'][0])
+		print "There are %s structures in the asymmetric unit. Chains %s are suficient to represent the asymmetric unit." % (str(number_of_structures), self.chains)
+		return number_of_structures, self.chains
 
-	def _run_clean_pdb(self, chains):
-		cmd = ['python ~/rosetta/tools/protein_tools/scripts/clean_pdb.py ' + self.filename + self.chains]
+	def get_experiment_type(self):
+		header_parser = HeaderParser(self.filename)
+		header = header_parser.get_header_dict()
+		try:
+			experiment = header['experiment'] if header['experiment'] else None
+		except Exception, e:
+			try:
+				experiment = header['EXPERIMENT'] if header['EXPERIMENT'] else None
+			except Exception, e:
+				experiment = 'undetermined'
+		print "This model was built using an %s experiment" % experiment
+		return experiment
+
+	def get_diffraction_resolution(self):
+		header_parser = HeaderParser(self.filename)
+		header = header_parser.get_header_dict()
+		try:
+			resolution = header['resolution'] if header['resolution'] else None
+		except Exception, e:
+			try:
+				resolution = header['RESOLUTION'] if header['RESOLUTION'] else None
+			except Exception, e:
+				resolution = 'undetermined'
+		print "This model was determined to %s Angstrom resolution" % resolution
+		return resolution
+
+	def _run_clean_pdb(self):
+		self._get_file_path()
+		cmd = ['python ~/rosetta/tools/protein_tools/scripts/clean_pdb.py ' + self.file_path + ' ' + self.chains]
 		subprocess.call(cmd, shell=True)
 
 	def _run_rosetta_minimizer(self):
+		self._get_file_path(cleaned=True)
+		print self.file_path
 		cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + self.file_path + ' -ignore_unrecognized_res']
 		subprocess.call(cmd, shell=True)
 
-	def process(self):
-		number_of_structures = self._count_structures_in_asymmetric_unit()
-		self._run_clean_pdb()
-		self._get_file_path(cleaned=True)
-		self._run_rosetta_minimizer()
+	def _rename_minimized_structure(self):
+		self._get_file_path(minimized=True)
+		file_handlers = FileHandlers()
+		source_filename = file_handlers.get_file_name(self.file_path).split('.')[0]
+		source_list = source_filename.split('_')
+		destination = '_'.join([source_list[0], source_list[2]])
+		os.rename(self.file_path, (os.getcwd() + '/' + destination + '.pdb'))
 
-	# This does NOT work
-	#def get_fasta(self):
-	#	self._get_file_path(minimized=True)
-	#	for chain in self.chains:
-	#		cmd = ['python ~/rosetta/tools/protein_tools/scripts/get_fasta_from_pdb.py ' + (self.filename + '_0001.pdb ') + chain + ' ' + (self.filename + '_' + chain + '.fasta')]
-	#		subprocess.call(cmd, shell=True)
+	def _is_clean(self): 
+		self._get_file_path(cleaned=True)
+		if self.file_path == '':
+			return False
+		else:
+			return True
+
+	def _is_minimized(self):
+		self._get_file_path(test_minimized=True)
+		if self.file_path == '':
+			return False
+		else:
+			return True
+
+	def process(self):
+		number_of_structures, self.chains = self.count_structures_in_asymmetric_unit()
+		if not self._is_clean():
+			self._run_clean_pdb()
+		if not self._is_minimized():
+			self._run_rosetta_minimizer()
+			self._rename_minimized_structure()	
+		return number_of_structures
+
+	def _is_pdb_downloaded(self):
+		self._get_file_path()
+		if self.file_path == '':
+			return False
+		else:
+			return True
+
+	def _is_mmcif_downloaded(self):
+		self._get_file_path(mmCIF=True)
+		if self.file_path == '':
+			return False
+		else:
+			return True
+
+	def preprocess_check(self):
+		if not self._is_pdb_downloaded():
+			pdb_getter = PDBFromUniprot()
+			pdb_getter.fetch_pdb(self.filename)
+		if not self._is_mmcif_downloaded():
+			cif_getter = CIFFromUniprot(self.filename)
+			cif_getter.fetch_mmCIF()
 		
 
 class LigandBindingSite:
-	def __init__(self, pdb_code):
+	def __init__(self, pdb_code, chains):
 		print "\n\n\nSearching for ligand binding sites...."
 		self.filename = pdb_code
+		self.chains = chains
 		self.file_path = ''
 		self.out_filename = ''
 		self.ligand_centroid = []
 		self.ligands = []
 		self.ligand_binding_pocket =[]
-		self.ignore = ['MN ', 'DOD', 'SO4', 'MES']
+		self.ignore = ['MN ', 'DOD', 'SO4', 'HOH']
 		self.ligand_chain = []
 		self.all_ligand_atoms = []
 
@@ -282,25 +502,27 @@ class LigandBindingSite:
 		elif pdb == True:
 			file_names = []
 			for pdb_file in pdb_files:
-				found = file_handlers.get_file_name(pdb_file).split('.')[0]
-				file_names.append(found)
-				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					current_pdb = pdb_file
-			if (self.filename + '_0001') not in file_names:
-				# Run Rosetta Minimizer
-				cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + current_pdb + ' -ignore_unrecognized_res']
-				subprocess.call(cmd, shell=True)
-				file_handlers = FileHandlers()
-				file_paths = file_handlers.search_directory()
-				pdb_files = file_handlers.find_files(file_paths, 'pdb')
-				for pdb_file in pdb_files:
-					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-						self.file_path = pdb_file
-			else:
-				print "\n\n\nUsing Rosetta minimized structure %s to search for ligand binding pocket." % (self.filename + '_0001')
-				for pdb_file in pdb_files:
-					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-						self.file_path = pdb_file
+				if (self.filename) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					self.file_path = pdb_file
+			#	found = file_handlers.get_file_name(pdb_file).split('.')[0]
+			#	file_names.append(found)
+			#	if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+			#		current_pdb = pdb_file
+			#if (self.filename + '_0001') not in file_names:
+			#	# Run Rosetta Minimizer
+			#	cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + current_pdb + ' -ignore_unrecognized_res']
+			#	subprocess.call(cmd, shell=True)
+			#	file_handlers = FileHandlers()
+			#	file_paths = file_handlers.search_directory()
+			#	pdb_files = file_handlers.find_files(file_paths, 'pdb')
+			#	for pdb_file in pdb_files:
+			#		if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+			#			self.file_path = pdb_file
+			#else:
+			#	print "\n\n\nUsing Rosetta minimized structure %s to search for ligand binding pocket." % (self.filename + '_0001')
+			#	for pdb_file in pdb_files:
+			#		if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+			#			self.file_path = pdb_file
 
 
 	def _find_ligand(self):
@@ -320,15 +542,21 @@ class LigandBindingSite:
 			#print "No ligand found for %s" % self.filename
 		else:
 			structure = p.get_structure('ligand', self.out_filename)
-			for chain in structure.get_chains():
+			atom_pos_array = []
+			#for Chain in self.chains:
+			for Chain in structure.get_chains():
+				#print "Looking for ligands on chain %s" % Chain
+				print "Looking for ligands on chain %s" % Chain.id
 				try:
-					chain = structure[0][chain.id]
+					#chain = structure[0][Chain]
+					chain = structure[0][Chain.id]
 					if chain:
 						print "Found ligand on chain %s" % chain.id
 						for residue in chain.get_residues():
 							if residue.resname not in self.ignore:
-								atom_pos_array = []
-								min_array = []
+								print "%s ligand not flagged" % residue.resname
+								self.ligands.append(residue.resname)
+								self.ligand_chain.append(Chain.id)
 								for atom in residue:
 									min_array = [atom.get_coord()[0],atom.get_coord()[1],atom.get_coord()[2]]
 									atom_pos_array.append(min_array)
@@ -366,10 +594,13 @@ class LigandBindingSite:
 			self._get_file_path(pdb=True)
 			p = PDBParser(QUIET=True)
 			structure = p.get_structure('protein', self.file_path)
+			ligand_binding_pocket = []
+			#for Chain in self.chains:
 			for chain in structure.get_chains():
+				print "looking for ligand binding pocket on chain %s" % chain.id
 				try:
 					chain = structure[0][chain.id]
-					ligand_binding_pocket = []
+					#chain = structure[0][Chain]
 					for residue in chain.get_residues():
 						for atom in residue:
 							if residue.resname in self.ligands or (' ' + residue.resname.rstrip()) in self.ligands or (residue.resname.lstrip() + ' ') in self.ligands:
@@ -380,38 +611,34 @@ class LigandBindingSite:
 								if centroid == 'True':
 									for centroid in self.ligand_centroid:
 										if abs(float(atom.get_coord()[0]) - float(centroid[0])) <= 5 and abs(float(atom.get_coord()[1]) - float(centroid[1])) <= 5 and abs(float(atom.get_coord()[2]) - float(centroid[2])) <= 5:
-											ligand_binding_pocket.append(str(residue.resname) + '\t' + str(residue.id[1]))
+											#ligand_binding_pocket.append(str(residue.resname) + '\t' + Chain + '\t' + str(residue.id[1]))
+											ligand_binding_pocket.append(str(residue.resname) + '\t' + chain.id + '\t' + str(residue.id[1]))
+
 								else:
 									for coordinate in self.all_ligand_atoms:
 										if abs(float(atom.get_coord()[0]) - float(coordinate[0])) <= 5 and abs(float(atom.get_coord()[1]) - float(coordinate[1])) <= 5 and abs(float(atom.get_coord()[2]) - float(coordinate[2])) <= 5:
-											ligand_binding_pocket.append(str(residue.resname) + '\t' + str(residue.id[1]))
+											#ligand_binding_pocket.append(str(residue.resname) + '\t' + Chain + '\t' + str(residue.id[1]))
+											ligand_binding_pocket.append(str(residue.resname) + '\t' + chain.id + '\t' + str(residue.id[1]))
 					self.ligand_binding_pocket = set(ligand_binding_pocket)
 					print "Residues in ligand binding pocket: ", [line.split('\t') for line in self.ligand_binding_pocket]
-					return self.ligand_binding_pocket
 				except KeyError:
-					print 'No ligand found in chain %s of %s' % (chain.id, self.filename)
+					print 'No ligand found in chain %s of %s' % (chain, self.filename)
+					#print 'No ligand found in chain %s of %s' % (chain.id, self.filename)
+			return self.ligand_binding_pocket
 
 
 	def write_residue_output(self):
 		active_site_filename = os.getcwd() + '/' + self.filename + '_lpocket.txt'
 		output_residues = open(active_site_filename, 'w')
 		for line in self.ligand_binding_pocket:
-			output_residues.write(line.split('\t')[1] + '\t' + str(100.00) + '\n')
+			output_residues.write(line + '\t' + str(100.00) + '\n')
 		output_residues.close()
 
 
 class Rosetta:
 	def __init__(self, pdb_code):
-		print "\n\n\nUsing Rosetta minimized structure for locating pockets."
 		self.filename = pdb_code
 		self.pdb = []
-		self.standard_res = [
-								'GLY', 'PRO', 'ALA', 'VAL', 'LEU', 
-								'ILE', 'MET', 'CYS', 'PHE', 'TYR',
-								'TRP', 'HIS', 'LYS', 'ARG', 'GLN',
-								'ASN', 'GLU', 'ASP', 'SER', 'THR'
-							]
-
 
 	def _get_pdb(self, rosetta_min=False, refined_pocket=False):
 		file_handlers = FileHandlers()
@@ -422,7 +649,7 @@ class Rosetta:
 				print "Invalid input"
 			elif rosetta_min == True:
 				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-					#print "\nUsing Rosetta minimized structure file %s for locating pockets." % (self.filename + '_0001.pdb')
+					print "\n\n\nUsing Rosetta minimized structure %s for locating pockets." % file_handlers.get_file_name(pdb_file)
 					filepath = pdb_file
 			elif refined_pocket == True:
 				if ('pocket0') == file_handlers.get_file_name(pdb_file).split('.')[0]:
@@ -458,8 +685,11 @@ class Rosetta:
 		data = self._get_data(file_tag)
 		residues = []
 		for line in data:
-			residue_number = line.split('\t')[0].strip()
-			residues.append(residue_number)
+			split_list = line.split('\t')
+			residue_name = split_list[0].strip()
+			residue_chain = split_list[1].strip()
+			residue_number = split_list[2].strip()
+			residues.append((residue_name, residue_chain, residue_number))
 		return residues
 
 	def _get_output(self):
@@ -476,37 +706,34 @@ class Rosetta:
 
 	def _get_score(self):
 		data = self._get_output()
-		for line in data:
-			score = float(line.split(' ')[-1].strip())
+		score = float(data[-1].split(' ')[-1].strip())
 		return score
 
 	def _get_resnums(self, filtered_data):
-		resnums = []
+		residues = []
 		for data in filtered_data:
-			resnums.append(data[0])
-		return resnums
+			residues.append(data[0])
+		return residues
 
 	def _write_scores(self, data, handle):
+		## data is a list of tuples. the format for items in this list is ( (name, chain, number), score )
 		out_file = os.getcwd() + '/' + self.filename + handle
 		out = open(out_file, 'w')
 		for tuple_element in data:
-			out.write(str(tuple_element[0]) + '\t' + str(tuple_element[1]) + '\n')
+			residue_tuple = tuple_element[0]
+			residue_name = residue_tuple[0]
+			residue_chain = residue_tuple[1]
+			residue_number = residue_tuple[2]
+			score = tuple_element[1]
+			out.write(residue_name + '\t' + residue_chain + '\t' + residue_number + '\t' + str(tuple_element[1]) + '\n')
 		out.close()
 
 	def _write_pocket_residues(self, handle):
 		out_file = os.getcwd() + '/' + self.filename + handle
 		out = open(out_file, 'w')
-		pocket_residues = self._get_pocket_residues()
-		#pdb_file = self._get_pdb(rosetta_min=True)
-		#p = PDBParser(QUIET=True)
-		#structure = p.get_structure('protein', pdb_file)
-		#for chain in structure.get_chains():
-		#	chain = structure[0][chain.id]
-		#	for residue in chain.get_residues():
-		#		if str(residue.id[1]) in pocket_residues and residue.resname in self.standard_res:
-		#			out.write(str(residue.id[1]) + '\t' + str(pocket_residues[str(residue.id[1])]) + '\n')
-		for resnum in pocket_residues:
-			out.write(str(resnum) + '\t' + str(pocket_residues[resnum]) + '\n')
+		pocket_residues = self._get_pocket_residues() ## dictionary with ==> ('name', 'chain', 'position') : '100.00'
+		for residue in pocket_residues:
+			out.write(residue[0] + '\t' + residue[1] + '\t' + residue[2] + '\t' + pocket_residues[residue] + '\n')
 		out.close()
 
 	def _plot_data(self, data):
@@ -524,80 +751,77 @@ class Rosetta:
 			self._plot_data(sorted_data)
 		return sorted_data
 
-	def _pocket_finder(self, filepath, residue_number, output=False):
-		if len(residue_number) == 1 and output == False:
-			chain = self._get_chain_id(filepath, residue_number[0])
-			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':' + chain + ' -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+	def _pocket_finder(self, filepath, residue_tuple_list, output=False):
+		if len(residue_tuple_list) == 1 and output == False:
+			chain = residue_tuple_list[0][1]
+			residue_number = str(residue_tuple_list[0][2])
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + residue_number + ':' + chain + ' -pocket_num_angles 100 | grep Largest >> pocket_score.out']
 			subprocess.call(cmd, shell=True)
-		elif len(residue_number) == 1 and output == True:
-			chain = self._get_chain_id(filepath, residue_number[0])
-			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':' + chain + ' -pocket_dump_pdbs -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+		elif len(residue_tuple_list) == 1 and output == True:
+			chain = residue_tuple_list[0][1]
+			residue_number = str(residue_tuple_list[0][2])
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + residue_number + ':' + chain + ' -pocket_dump_pdbs -pocket_num_angles 100 | grep Largest >> pocket_score.out']
 			subprocess.call(cmd, shell=True)
-		elif len(residue_number) == 2 and output == False:
-			chain1 = self._get_chain_id(filepath, residue_number[0])
-			chain2 = self._get_chain_id(filepath, residue_number[1])
-			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':' + chain1 + ',' + str(residue_number[1]) + ':' + chain2 + ' -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+		elif len(residue_tuple_list) == 2 and output == False:
+			chain1 = residue_tuple_list[0][1]
+			residue_number1 = str(residue_tuple_list[0][2])
+			chain2 = residue_tuple_list[1][1]
+			residue_number2 = str(residue_tuple_list[1][2])
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + residue_number1 + ':' + chain1 + ',' + residue_number2 + ':' + chain2 + ' -pocket_num_angles 100 | grep Largest >> pocket_score.out']
 			subprocess.call(cmd, shell=True)
-		elif len(residue_number) == 2 and output == True:
-			chain1 = self._get_chain_id(filepath, residue_number[0])
-			chain2 = self._get_chain_id(filepath, residue_number[1])
-			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + str(residue_number[0]) + ':' + chain1 + ',' + str(residue_number[1]) + ':' + chain2 + ' -pocket_dump_pdbs -pocket_num_angles 100 | grep Largest >> pocket_score.out']
+		elif len(residue_tuple_list) == 2 and output == True:
+			chain1 = residue_tuple_list[0][1]
+			residue_number1 = str(residue_tuple_list[0][2])
+			chain2 = residue_tuple_list[1][1]
+			residue_number2 = str(residue_tuple_list[1][2])
+			cmd = ['~/rosetta/main/source/bin/pocket_measure.static.macosclangrelease -s ' + filepath + ' -central_relax_pdb_num ' + residue_number1 + ':' + chain1 + ',' + residue_number2 + ':' + chain2 + ' -pocket_dump_pdbs -pocket_num_angles 100 | grep Largest >> pocket_score.out']
 			subprocess.call(cmd, shell=True)
 		else:
 			print "invalid input"
 
-	def _get_chain_id(self, filepath, resnum):
-		p = PDBParser(QUIET=True)
-		structure = p.get_structure('protein', filepath)
-		for chain in structure.get_chains():
-			chain_id = chain.id
-			chain = structure[0][chain_id]
-			for residue in chain.get_residues():
-				if str(residue.id[1]) == str(resnum):
-					return chain_id
 
-	def _is_standard_res(self, filepath, resnum):
+	def _is_standard_res(self, filepath, residue_tuple):
 		p = PDBParser(QUIET=True)
 		structure = p.get_structure('protein', filepath)
-		for chain in structure.get_chains():
-			chain_id = chain.id
-			chain = structure[0][chain_id]
-			for residue in chain.get_residues():
-				if str(residue.id[1]) == resnum:
-					if residue.resname in self.standard_res:
-						return True
-					else:
-						return False
+		for Chain in structure.get_chains():
+			if Chain.id == residue_tuple[1]:
+				chain = structure[0][Chain.id]
+				for residue in chain.get_residues():
+					if str(residue.id[1]) == residue_tuple[2]:
+						if residue.resname in settings.AA_CODES:
+							return True
+						else:
+							return False
 
 	def _scan_surface(self):
 		data = []
 		filepath = self._get_pdb(rosetta_min=True)
 		residues = self._get_surface_residues("_SurfRes")
 		print 'Scanning surface for pockets...'
-		for residue in residues:
-			if self._is_standard_res(filepath, residue):
-				self._pocket_finder(filepath, [residue])
+		for residue_tuple in residues:
+			if self._is_standard_res(filepath, residue_tuple):
+				self._pocket_finder(filepath, [residue_tuple])
 				score = self._get_score()
-				print 'Residue number: %s Score: %s' % (residue, str(score))
-				data.append((residue, score))
+				print 'Residue number: %s Score: %s' % (residue_tuple, str(score))
+				data.append((residue_tuple, score))
 		self._write_scores(data, '_pocket_scores.out')
-		return data
+		return data ## format for items in this list is ( (name, chain, number), score )
 
 	def _refine_pockets(self, filtered_data):
+		## filtered_data is a list of tuples. the format for items in this list is ( (name, chain, number), score )
+		print "filtered data: ", filtered_data
 		print "Refining pocket location..."
 		filepath = self._get_pdb(rosetta_min=True)
-		resnums = self._get_resnums(filtered_data)
-		combos = itertools.combinations(resnums, 2)
+		residues = self._get_resnums(filtered_data)
+		combos = itertools.combinations(residues, 2)
 		results = []
 		for combo in combos:
 			res1, res2 = combo[0], combo[1]
-			self._pocket_finder(filepath, combo)
+			self._pocket_finder(filepath, list(combo))
 			score = self._get_score()
 			results.append((combo, score))
+			print 'Residue pair: (%s, %s) Score: %s' % (str(res1), str(res2), str(score))
 		sorted_results = self._sort_scores(results, plt=False)
-		print 'sorted_results', sorted_results
-		if sorted_results[0][1] == 0:
-			pass
 		self._pocket_finder(filepath, list(sorted_results[-1][0]), output=True)
 
 	def _get_pocket_coordinates(self):
@@ -626,53 +850,56 @@ class Rosetta:
 		protein_filepath = self._get_pdb(rosetta_min=True)
 		p = PDBParser(QUIET=True)
 		structure = p.get_structure('protein', protein_filepath)
-		for chain in structure.get_chains():
-			chain = structure[0][chain.id]
+		for Chain in structure.get_chains():
+			chain = structure[0][Chain.id]
 			for residue in chain.get_residues():
-				if residue.id[0] == ' ' and residue.resname in self.standard_res:
+				if residue.id[0] == ' ' and residue.resname in settings.AA_CODES:
 					for atom in residue:
 						for coordinate in pocket_coordinates:
 							if abs(float(atom.get_coord()[0]) - float(coordinate[0])) <= 2.5 and abs(float(atom.get_coord()[1]) - float(coordinate[1])) <= 2.5 and abs(float(atom.get_coord()[2]) - float(coordinate[2])) <= 2.5:
-								pocket_residues[str(residue.id[1])] = str(100.00)
+								pocket_residues[(residue.resname, Chain.id, str(residue.id[1]))] = str(100.00)
 				else:
 					pass
-		return pocket_residues
+		return pocket_residues ## dictionary with ==> ('name', 'chain', 'position') : '100.00'
 
-	def _set_filtered_pocket_scores(self, data_tuples, BestScore=False):
+	def _set_filtered_pocket_scores(self, data_tuples, threshold=0.90, BestScore=False):
+		# data_tuples will be a list. the items will have the format: ( frac, ((name, chain, number), score) )
 		filtered_data = []
 		if BestScore == False:
-			threshold = 0.90
 			for item in data_tuples:
 				if item[0] >= threshold:
 					filtered_data.append(item[1])
-			while filtered_data == [] and threshold > 0:
-				threshod = threshold - 0.1
-				filtered_data = self._set_filtered_pocket_scores(data_tuples, threshold)
+			if len(filtered_data) <= 4 and threshold > 0:
+				new_threshold = threshold - 0.1
+				filtered_data = self._set_filtered_pocket_scores(data_tuples, threshold=new_threshold)
 			if filtered_data == []:
 				print "Failed to find pocket"
 			return filtered_data
 		else:
 			filtered_data.append(data_tuples[-1][1])
-			return filtered_data
+			return filtered_data ## filtered_data is a list of tuples. the format for items in this list is ( (name, chain, number), score )
 
 	def find_pockets(self):
-		data = self._scan_surface()
+		data = self._scan_surface() ## data is a list of tuples. the format for items in this list is ( (name, chain, number), score )
 		sorted_data = self._sort_scores(data, plt=False)
 		highest_score = float(sorted_data[-1][1])
 		lowest_score = float(sorted_data[0][1])
 		data_tuples = []
 		for data in sorted_data:
 			frac = abs((lowest_score - float(data[1])) / (highest_score - lowest_score))
-			data_tuples.append((frac, data))
+			data_tuples.append((frac, data)) # data_tuples will be a list. the items will have the format: ( frac, ((name, chain, number), score) )
+		#
 		## alternative approach uses high score from surface residue scan
-		filepath = self._get_pdb(rosetta_min=True)
-		best_scoring_residue = []
-		best_scoring_residue.append(data_tuples[-1][1][0])
-		self._pocket_finder(filepath, best_scoring_residue, output=True)
-		filtered_data = self._set_filtered_pocket_scores(data_tuples, BestScore=True)
+		#filepath = self._get_pdb(rosetta_min=True)
+		#best_scoring_residue = []
+		#best_scoring_residue.append(data_tuples[-1][1][0])
+		#self._pocket_finder(filepath, best_scoring_residue, output=True)
+		#filtered_data = self._set_filtered_pocket_scores(data_tuples, BestScore=True)
+		#
 		## original method uses best pocket from pairs of high scoring surface residues
-		#filtered_data = self._set_filtered_pocket_scores(data_tuples)
-		#self._refine_pockets(filtered_data)
+		filtered_data = self._set_filtered_pocket_scores(data_tuples)
+		self._refine_pockets(filtered_data)
+		#
 		self._write_scores(filtered_data, '_pockets.txt')
 		self._write_pocket_residues('_pocketres.txt')
 
@@ -681,7 +908,7 @@ class MutantListMaker:
 	def __init__(self, pdb_code):
 		self.handles = []
 		self.filename = pdb_code
-		self.resnums = set([])
+		#self.resnums = set([])
 		self.codes = {	'GLY' : 'G', 'PRO' : 'P', 'ALA' : 'A', 'VAL' : 'V', 'LEU' : 'L', 
 						'ILE' : 'I', 'MET' : 'M', 'CYS' : 'C', 'PHE' : 'F', 'TYR' : 'Y',
 						'TRP' : 'W', 'HIS' : 'H', 'LYS' : 'K', 'ARG' : 'R', 'GLN' : 'Q',
@@ -716,31 +943,46 @@ class MutantListMaker:
 		else:
 			print "Specify file type"
 
-	def _get_resnums(self):
-		resnums = set([])
+
+	def _get_resmapping(self):
+		res_mapping = []
 		for handle in self.handles:
 			filepath = self._get_filepath(handle, data_file=True)
 			data = self._open_file(filepath)
 			for line in data:
-				resnum = line.split('\t')[0]
-				resnums.add(resnum)
-		self.resnums = resnums
-		return resnums
-
-	def _get_resmapping(self):
-		res_mapping = []
-		filepath = self._get_filepath('', pdb_file=True)
-		p = PDBParser(QUIET=True)
-		structure = p.get_structure('protein', filepath)
-		for chain in structure.get_chains():
-			chain = structure[0][chain.id]
-			for residue in chain.get_residues():
-				if str(residue.id[1]) in self.resnums:
-					if residue.resname not in amino_acids.longer_names.keys():
-						pass
-					else:
-						res_mapping.append((chain.id, self.codes[residue.resname], residue.id[1]))
+				split_line = line.split('\t') # New version
+				if split_line[0] in self.codes:
+					res_name = self.codes[split_line[0]]
+					chain = split_line[1]
+					resnum = split_line[2]
+					res_mapping.append((chain, res_name, resnum))
 		return res_mapping
+
+	#def _get_resnums(self):
+	#	resnums = set([]) 
+	#	for handle in self.handles:
+	#		filepath = self._get_filepath(handle, data_file=True)
+	#		data = self._open_file(filepath)
+	#		for line in data:
+	#			resnum = line.split('\t')[2]
+	#			resnums.add(resnum)
+	#	self.resnums = resnums
+	#	return resnums
+
+	#def _get_resmapping(self):
+	#	res_mapping = []
+	#	filepath = self._get_filepath('', pdb_file=True)
+	#	p = PDBParser(QUIET=True)
+	#	structure = p.get_structure('protein', filepath)
+	#	for chain in structure.get_chains():
+	#		chain = structure[0][chain.id]
+	#		for residue in chain.get_residues():
+	#			if str(residue.id[1]) in self.resnums:
+	#				if residue.resname not in amino_acids.longer_names.keys():
+	#					pass
+	#				else:
+	#					res_mapping.append((chain.id, self.codes[residue.resname], residue.id[1]))
+	#	return res_mapping
 
 	def _get_mutants(self, res_mapping):
 		mutants = {}
@@ -762,11 +1004,13 @@ class MutantListMaker:
 	def generate_mutant_list(self, pocketres=False, lpocket=False, SurfRes=False):
 		if pocketres == True and lpocket == True and SurfRes == True:
 			self.handles = ['_pocketres', '_lpocket', '_SurfRes']
-			self._get_resnums()
+			res_mapping = self._get_resmapping()
+			#self._get_resnums()
 		if pocketres == True and lpocket == True:
 			self.handles = ['_pocketres', '_lpocket']
-			self._get_resnums()
-		res_mapping = self._get_resmapping()
+			res_mapping = self._get_resmapping()
+			#self._get_resnums()
+		#self._get_resmapping()
 		mutants = self._get_mutants(res_mapping)
 		self._write_mutant_list(mutants, '_mutant_list.txt')
 
@@ -803,7 +1047,7 @@ class DDGMonomer:
 
 
 class SurfaceResidues:
-	def __init__(self, pdb_code):
+	def __init__(self, pdb_code, server_mode=False):
 		print "\n\nCalculating solvent accessible surface area using POPS...."
 		self.dir_path = os.getcwd() + '/pops_results'
 		self._mkdir()
@@ -814,6 +1058,9 @@ class SurfaceResidues:
 		self.data = []
 		self.SASA_dict = {}
 		self.found_modres = False
+		self.server_mode = server_mode
+		#self.pdb_dir = os.getcwd() + '/results/' ## running from server
+		self.pdb_dir = os.getcwd() ## running from local
 
 	def _get_file_path(self, modres=False):
 		file_handlers = FileHandlers()
@@ -825,9 +1072,17 @@ class SurfaceResidues:
 					self.file_path = pdb_file
 					self.out_file = file_handlers.get_file_name(pdb_file).split('.')[0] + '_pops.out'
 					self.out_file_path = self.dir_path + '/' + self.out_file
+		if self.server_mode == True:
+			for pdb_file in pdb_files:
+				if (self.filename) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					print "Calculating surface residues for file:", pdb_file
+					self.file_path = pdb_file
+					self.out_file = file_handlers.get_file_name(pdb_file).split('.')[0] + '_pops.out'
+					self.out_file_path = self.dir_path + '/' + self.out_file
 		else:
 			for pdb_file in pdb_files:
 				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+					print "Calculating surface residues for file:", pdb_file
 					self.file_path = pdb_file
 					self.out_file = file_handlers.get_file_name(pdb_file).split('.')[0] + '_pops.out'
 					self.out_file_path = self.dir_path + '/' + self.out_file
@@ -861,6 +1116,7 @@ class SurfaceResidues:
 		self._get_file_path()
 		self._check_for_modres(self.file_path)
 		if self.found_modres:
+			print "Found modified residues in this structure."
 			self.file_path = ''
 			self._get_file_path(modres=True)
 		cmd = ['pops --pdb ' + self.file_path + ' --coarse --compositionOut --typeOut --topologyOut --atomOut --residueOut --chainOut --popsOut ' + self.out_file_path]
@@ -882,53 +1138,51 @@ class SurfaceResidues:
 			fields = line.split('\t')
 			cleaned = file_handlers.clean(fields)
 			if len(cleaned) == 9: 
-				(position, 
-				aa, 
-				tot_SA, 
-				SASA, 
-				frac_SASA, 
-				phob, 
-				phil) = (cleaned[2],
-						cleaned[0],
-						cleaned[8],
-						cleaned[5],
-						cleaned[6],
-						cleaned[3],
-						cleaned[4])
-				self.SASA_dict[self.filename][position] = [aa, 
-													tot_SA, 
-													SASA, 
-													frac_SASA, 
-													phob, 
-													phil]
-		#return self.SASA_dict
+				position = cleaned[2]
+				aa = cleaned[0]
+				tot_SA = cleaned[8]
+				SASA = cleaned[5]
+				frac_SASA = cleaned[6]
+				phob = cleaned[3]
+				phil = cleaned[4]
+				chain = cleaned[1]
+				if aa in settings.AA_CODES:
+					self.SASA_dict[self.filename][(chain, position)] = [aa, tot_SA, SASA, frac_SASA, phob, phil]
+				elif aa in settings.MODRES:
+					self.SASA_dict[self.filename][(chain, position)] = [settings.MODRES[aa], tot_SA, SASA, frac_SASA, phob, phil]
 
 	def write_resi_sasa_output(self):
 		if self.SASA_dict == {}:
 			self._build_SASA_dict()
-		sasa_b_factor_filename = os.getcwd() + '/' + self.filename + '_sasa.txt'
+		sasa_b_factor_filename = self.pdb_dir + '/' + self.filename + '_sasa.txt'
 		output_b_factors = open(sasa_b_factor_filename, 'w')
-		for residue_position in self.SASA_dict[self.filename]:
-			#print "residue id:", self.SASA_dict[self.filename][residue_position][0]
-			output_b_factors.write(residue_position + '\t' + self.SASA_dict[self.filename][residue_position][2] + '\n')
+		for key in self.SASA_dict[self.filename]:
+			chain = key[0]
+			position = key[1]
+			output_b_factors.write(self.SASA_dict[self.filename][key][0] + '\t' + chain + '\t' + position + '\t' + self.SASA_dict[self.filename][key][2] + '\n')
 		output_b_factors.close()
 
 	def write_frac_sasa_output(self):
 		if self.SASA_dict == {}:
 			self._build_SASA_dict()
-		sasa_b_factor_filename = os.getcwd() + '/' + self.filename + '_fracsasa.txt'
+		sasa_b_factor_filename = self.pdb_dir + '/' + self.filename + '_fracsasa.txt'
 		output_b_factors = open(sasa_b_factor_filename, 'w')
-		for residue_position in self.SASA_dict[self.filename]:
-			output_b_factors.write(residue_position + '\t' + self.SASA_dict[self.filename][residue_position][3] + '\n')
+		for key in self.SASA_dict[self.filename]:
+			chain = key[0]
+			position = key[1]
+			output_b_factors.write(self.SASA_dict[self.filename][key][0] + '\t'+ chain + '\t' + position + '\t' + self.SASA_dict[self.filename][key][3] + '\n')
 		output_b_factors.close()
 
 	def write_surface_resi_output(self, threshold):
 		surface_residues = self._get_surface_residues(threshold)
-		out_filename = self.filename + '_SurfRes.txt'
+		out_filename = self.pdb_dir + '/'+ self.filename + '_SurfRes.txt'
 		output = open(out_filename, 'w')
 		for line in surface_residues:
-			resi_position = line.split('\t')[1]
-			output.write(resi_position + '\t100.00\n')
+			split_line = line.split('\t')
+			resi_position = split_line[2]
+			resi_chain = split_line[1]
+			resi_name = split_line[0]
+			output.write(resi_name + '\t' + resi_chain + '\t' + resi_position + '\t100.00\n')
 		output.close
 
 	def _get_surface_residues(self, threshold):
@@ -936,14 +1190,18 @@ class SurfaceResidues:
 		if self.SASA_dict == {}:
 			self._build_SASA_dict()
 			for pdb_code in self.SASA_dict:
-				for resi_position, SASA_info_list in self.SASA_dict[pdb_code].iteritems():
+				for key, SASA_info_list in self.SASA_dict[pdb_code].iteritems():
+					chain = key[0]
+					position = key[1]
 					if float(SASA_info_list[3]) > threshold:
-						surface_residues.append(SASA_info_list[0] + '\t' + resi_position)
+						surface_residues.append(SASA_info_list[0] + '\t' + chain + '\t' + position)
 		else:
 			for pdb_code in self.SASA_dict:
-				for resi_position, SASA_info_list in self.SASA_dict[pdb_code].iteritems():
+				for key, SASA_info_list in self.SASA_dict[pdb_code].iteritems():
+					chain = key[0]
+					position = key[1]
 					if float(SASA_info_list[3]) > threshold:
-						surface_residues.append(SASA_info_list[0] + '\t' + resi_position)
+						surface_residues.append(SASA_info_list[0] + '\t' + chain + '\t' + position)
 		print "\nResidues with greater than %s %% solvent accessible surface area are: " % (str(float(threshold) * 100))
 		for line in surface_residues:
 			print line.split('\t')
@@ -951,14 +1209,16 @@ class SurfaceResidues:
 
 
 class EditPDB:
-	def __init__(self, pdb_code):
+	def __init__(self, pdb_code, server_mode=False):
 		self.filename = pdb_code
-		self.pdb = []
 		self.data = []
 		self.data_dict = {}
+		self.chains = set([])
+		self.server_mode = server_mode
+		self.pdb_dir = os.getcwd() + '/results/' ## running from server
 
 	def _get_pdb(self, modres=False):
-		#os.chdir("./database/pdbs/pdb")
+		pdb = ''
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
 		pdb_files = file_handlers.find_files(file_paths, 'pdb')
@@ -966,13 +1226,50 @@ class EditPDB:
 			if modres == True:
 				if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
 					PDB = open(pdb_file)
-					self.pdb = PDB.readlines()
+					pdb = PDB.readlines()
 					PDB.close()
 			else:
 				if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
 					PDB = open(pdb_file)
-					self.pdb = PDB.readlines()
+					pdb = PDB.readlines()
 					PDB.close()
+		return pdb
+
+	def _get_number_offset(self, file_tag):
+		offset_dict = {}
+		chains = list(self.chains)
+		
+		minimized_pdb_lines = self._get_pdb(modres=True)
+		for chain in chains:
+			offset_dict[chain] = {}
+			
+			# Get residue numbers for minimized structure
+			minimized_resnums = set([])
+			for line in minimized_pdb_lines:
+				if line[0:6] == "ATOM  " and line[21:22] == chain:
+					minimized_resnums.add((line[17:20].strip(), line[21:22], int(line[22:26])))
+			minimized = list(minimized_resnums)
+			minimized_sorted = sorted(minimized, key=itemgetter(2))
+			
+			# Get residue numbers for raw pdb
+			raw_pdb_lines = self._get_pdb()
+			raw_pdb_resnums = set([])
+			for line in raw_pdb_lines:
+				if line[0:6] == "ATOM  " and line[21:22] == chain:
+					raw_pdb_resnums.add((line[17:20].strip(), line[21:22], int(line[22:26])))
+			raw_pdb = list(raw_pdb_resnums)
+			raw_sorted = sorted(raw_pdb, key=itemgetter(2))
+			
+			# Walk the arrays to find positions where offset difference in numbering changes (i.e. chain breaks)
+			# If looking at ligand binding pocket, set offset to 0
+			for i in range(len(raw_pdb)):
+				if self.server_mode == True or file_tag == '_lpocket':
+					offset_dict[chain][raw_sorted[i][2]] = 0
+				else:
+					if raw_sorted[i][0] == minimized_sorted[i][0]:
+						offset = raw_sorted[i][2] - minimized_sorted[i][2]
+						offset_dict[chain][raw_sorted[i][2]] = offset
+		return offset_dict
 
 	def _get_data(self, file_tag):
 		file_handlers = FileHandlers()
@@ -981,6 +1278,7 @@ class EditPDB:
 		for txt_file in txt_files:
 			if self.filename == file_handlers.get_file_name(txt_file).split('_')[0]:
 				if (file_tag.split('_')[1] + '.txt') == file_handlers.get_file_name(txt_file).split('_')[1]:
+					print "parsing data for:", txt_file
 					TXT = open(txt_file)
 					self.data = TXT.readlines()
 					TXT.close()
@@ -992,17 +1290,22 @@ class EditPDB:
 		for line in self.data:
 			fields = line.split('\t')
 			cleaned = file_handlers.clean(fields)
-			self.data_dict[int(cleaned[0])] = float(cleaned[1])
+			(self.chains).add(cleaned[1])
+			self.data_dict[(cleaned[0], cleaned[1], int(cleaned[2]))] = float(cleaned[3])
 
 	def _edit_bfactor(self, file_tag):
-		self._get_pdb()
+		raw_pdb = self._get_pdb()
 		self._build_data_dict(file_tag)
+		offset_dict = self._get_number_offset(file_tag)
 		lines_out = []
-		for line in self.pdb:
+		for line in raw_pdb:
 			if line[0:6] == "ATOM  ":
+				name = line[17:20].strip()
+				chain = line[21:22].strip()
 				resnum = int(line[22:26].strip())
-				if resnum in self.data_dict.keys():
-					lines_out.append("%s%6.2F%s" % (line[:60], self.data_dict[resnum], line[66:]))
+				if chain in offset_dict and (name, chain, (resnum - offset_dict[chain][resnum])) in self.data_dict.keys():
+					#print "edit pdb for: ", name, chain, (resnum - offset_dict[chain][resnum])
+					lines_out.append("%s%6.2F%s" % (line[:60], self.data_dict[(name, chain, (resnum - offset_dict[chain][resnum]))], line[66:]))
 				else:
 					lines_out.append("%s%6s%s" % (line[:60],"NA",line[66:]))
 			elif line[0:6] == "HETATM":
@@ -1012,9 +1315,9 @@ class EditPDB:
 		return lines_out
 
 	def edit_resname(self, reslist, file_tag):
-		self._get_pdb(modres=True)
+		raw_pdb = self._get_pdb(modres=True)
 		lines_out = []
-		for line in self.pdb:
+		for line in raw_pdb:
 			if line[0:6] == "ATOM  ":
 				for resnum in reslist[0]:
 					res_num = int(line[22:26].strip())
@@ -1025,10 +1328,10 @@ class EditPDB:
 		self._write_output(lines_out, file_tag)
 
 	def _write_output(self, lines, file_tag):
-		#os.chdir('./database/pdbs/pdb') 
-		output_file = os.getcwd() + "/" + self.filename + file_tag
+		output_file = os.getcwd() + '/' + self.filename + file_tag
+		#output_file = self.pdb_dir + self.filename + file_tag
 		outfile = open(output_file, 'w')
-		lines = self._edit_bfactor(file_tag)
+		#lines = self._edit_bfactor(file_tag)
 		for line in lines:
 			outfile.write(line)
 		outfile.close()
@@ -1084,7 +1387,6 @@ class EditPDB:
 			outfile.write(lines[str(resnum)])
 		outfile.close()
 		#os.chdir('../../../')
-
 
 
 

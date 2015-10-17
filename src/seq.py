@@ -13,11 +13,12 @@ import settings
 import BioModules
 
 class MutationListGenerator:
-	def __init__(self, sequence_annotations, dna_sequences, pdb_code='', psiblast=''):
+	def __init__(self, sequence_annotations, dna_sequences, aln_diff, pdb_code='', psiblast=''):
 		self.sequence_annotations = sequence_annotations
 		self.pdb_code = pdb_code
 		self.psiblast = psiblast
 		self.dna_sequences = dna_sequences
+		self.aln_diff = aln_diff
 		self.ddG_results_filepath = ''
 		self.ddG_data = []
 		self.ddG_data_map = {}
@@ -89,36 +90,73 @@ class MutationListGenerator:
 				ddG_data_map[(chain, wt_res, position, mut_res)] = cleaned[3]
 		self.ddG_data_map = ddG_data_map
 
-	def write_csv_output(self):
+	def write_csv_output(self, aln_diff):
 		self._parse_ddG_data()
 		self._build_mut_seq_list()
 		out_filename = self.pdb_code + '_mutation_list.csv'
 		output = open(out_filename, 'w')
+		output_dictionary = {}
+		for sequence in self.sequence_annotations:
+			output_dictionary[sequence] = {}
 		for key in self.mutation_map:
 			start_site = '100'
-			wild_type_residue = key[0]
-			position = key[1]
-			codons = ' '.join(list(self.mutation_map[key]))
-		for key in self.ddG_data_map:
-			for sequence in self.sequence_annotations:
-				if key[0] == sequence[0]:
-					gene_name = sequence[1]
+			chain = key[0]
+			wild_type_residue = key[1]
+			#position = str( int(key[2]) ) # for pdb numbering that is same as genomic numbering # worked for 4JDR, 3NBU, 1S7C, 2CMD, 
+			#position = str( int(key[2]) + int(self.aln_diff[0][1]) )
+			#position = str( int(key[2]) - 1000 ) # for 1X15 where numbers begin with 1001
+			#position = str( int(key[2]) - 999 ) # for 1SRU also begins with 1001
+			#position = str( int(key[2]) + 1 ) # for 4N72 where numbers begin with 383, and for 4TWZ begins with 6; worked for 1H16
+			position = str( int(key[2]) + 26 ) # 3TCH
+			codons = ",".join(list(self.mutation_map[key]))
+			for sequence in output_dictionary:
+				if chain == sequence[0]:
+					output_dictionary[sequence][(start_site, wild_type_residue, position, codons)] = []
+		for key in output_dictionary:
+			chain = key[0]
+			gene_name = key[1]
+			organism = key[2]
+			aa_sequence = key[3]
 			for i in range(len(self.dna_sequences)):
 				for sequence in self.dna_sequences[i]:
 					if gene_name == sequence[0]:
 						dna_sequence = sequence[1]
-			output.write(gene_name + ',' + dna_sequence + ',' + start_site + ',' + wild_type_residue + ',' + position + ',' + '[' + codons + ']' + '\n')
+			for item in output_dictionary[key]:
+				start_site = item[0]
+				wild_type_residue = item[1]
+				position = item[2]
+				codons = item[3]
+				output.write(gene_name + '	' + dna_sequence + '	' + start_site + '	' + wild_type_residue + '	' + position + '	' + codons + '\n')
+				self._check_sequence_accuracy(wild_type_residue, position, dna_sequence, start_site)
+		self._print_total_seq_count(out_filename)
 		output.close
 
+	def _print_total_seq_count(self, out_filename):
+		read_output = open(out_filename, 'rU')
+		read_output_lines = read_output.readlines()
+		read_output.close()
+		print "length of mutation_map is:", len(self.mutation_map)
+		print "length of output_file is: ", len(read_output_lines)
+		print "total length of library is: ", len(self.ddG_data_map)
+
+
+	def _check_sequence_accuracy(self, wild_type_residue, position, dna_sequence, start_site):
+		print "position is:", position
+		start = ((int(position) * 3) + int(start_site)) - 3
+		stop = start + 3
+		residue = BioModules.dna2protein(dna_sequence[start:stop])
+		print "residue is: ", residue
+		print "what i think the residue is: ", wild_type_residue
+
 	def _build_mut_seq_list(self):
-		self._parse_ddG_data()
+		#self._parse_ddG_data()
 		mutation_map = {}
 		for key in self.ddG_data_map:
-			if (key[1], key[2]) not in mutation_map:
-				mutation_map[(key[1], key[2])] = set([settings.E_COLI_CODON_USAGE[key[3]][0][0]])
+			if (key[0], key[1], key[2]) not in mutation_map:
+				mutation_map[(key[0], key[1], key[2])] = set([settings.E_COLI_CODON_USAGE[key[3]][0][0]])
 			else:
 				#mutation_map[key[1]].add(key[2])
-				mutation_map[(key[1], key[2])].add(settings.E_COLI_CODON_USAGE[key[3]][0][0])
+				mutation_map[(key[0], key[1], key[2])].add(settings.E_COLI_CODON_USAGE[key[3]][0][0])
 		self.mutation_map = mutation_map
 				
 	def _test_codon_usage(self):
