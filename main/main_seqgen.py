@@ -41,18 +41,26 @@ def main():
 	genbank_ids = ['81171066', '11182439', '67470903', '71162387', '84027826', '84027822', '84027824', '2506692', '81175321', '170180374']
 	ronming = ['3TCF', '3TCG', '3TCH']
 	gene_names = ['pntA']
-	pdb_codes = ['3BP8']
-	queue = ['1LB2', '1DPS', '1BG8', '2XUV']
+	pdb_codes = ['2BHS']
+	queue = ['...', '3BP8', '1LB2', '1DPS', '1BG8', '2XUV', '3UCS']
 	#pdb_codes = ['2ZHG', '2CGP', '2H27']
-	rerun = ['4JDR', '3NBU', '2CMD', '2ZYA', '4TWZ', '1SRU']
+	rerun = ['4JDR', '3NBU', '2CMD', '2ZYA', '4TWZ', '1SRU', '1JTS']
 	#pdb_codes = ['1X15', '4N72', '4JDR', '2CMD', '2ZYA', '3NBU', '4TWZ', '1SRU', '1W36']
 	dna_bound = ['3JRG', '3JRH', '2ZHG', '2CGP', '2H27']
+	key_error = ['1XGE'] # line 1433 in _edit_bfactor KeyErro 103
+	list_index_out_of_range = ['4TWZ', '2BUI', '2BHS'] # list index out of range line 1395
+	ligan_is_on_chain_B = ['1X15']
+	homodimer_is_inverted = ['3PFL', '2ZYA', '1NYT', '2EFT', '1DFG'] # targeted residues are on wrong chain or both chains. need to get residues for both chains (copy B to A)
 	hold = ['4OX6']
+	two_chains = ['1NYE', '3UCS', '2O97']
+	gaps_in_structure = ['2G67'] # need to fix write_csv_output to be robust to gaps in seq. currently just subtracting the first aln_diff
 	pops_issue = []
-	pocket_finder_issue = ['1IHF', '1OR7']
+	pocket_finder_issue = ['1IHF', '1OR7', '1SRU']
 	ligand_issue = ['2ZHG', '1IHF']
 	cleaned_file_mapping = {'1W36' : '1W36DBCY', '1W36': '1W36D', '1W36': '1W36B', '1W36': '1W36C', '4B2N' : '4B2NA', '1U60' : '1U60AB', '2XUV' : '2XUVABCD', '1Y00' : '1Y00AB'}
 	done = ['1X15', '4N72', '4JDR', '2CMD', '2ZYA', '3NBU', '4TWZ', '1SRU', '1S7C', '4B2NA', '2J1N', '1U60AB', '1YAC', '2XUVABCD', '1Y00AB', '1W36D', '1W36B', '1W36C', '3NR7', '2L15', '1A04', '2GQQ', '1LB2', '3I2Z', '3TCH', '3TCH', '1H16', '3TCH']
+	preliminary = []
+	final = ['4N72', '3NBU', '3TCH', '1DPS', '1NYE', '3NR7', '2GQQ', '3I2Z', '1BG8', '1YAC', '2CMD', '1GS5', '3N1C', '2R97', '4LFU', '4JDR', '3PFL', '1S7C', '2GFY', '2GFW']
 	# Download .pdb using pdb_id
 	# THIS WORKS. DO NOT CHANGE
 #	pdb_getter = PDBFromUniprot()
@@ -98,6 +106,7 @@ def main():
 ##	# Preprocessing
 ##	# THIS WORKS. DO NOT CHANGE
 		number_of_structures = preprocessor.process()
+		preprocessor.get_complex_info()
 #
 ##	# Find start site for structure
 ##	# THIS WORKS. DO NOT CHANGE
@@ -111,43 +120,54 @@ def main():
 #
 ##	# Get surface residues
 ##	# THIS WORKS. DO NOT CHANGE
-		sr_getter = SurfaceResidues(pdb_code, server_mode=False)
-		sr_getter.write_resi_sasa_output()
-		sr_getter.write_frac_sasa_output()
-		pdb_editor.edit_bfactor_sasa()
-		sr_getter.write_surface_resi_output(0.3)
-		pdb_editor.edit_bfactor_surface_residues()
+	#	sr_getter = SurfaceResidues(pdb_code, server_mode=False)
+	#	sr_getter.write_resi_sasa_output()
+	#	sr_getter.write_frac_sasa_output()
+	#	pdb_editor.edit_bfactor_sasa()
+	#	sr_getter.write_surface_resi_output(0.3)
+	#	pdb_editor.edit_bfactor_surface_residues()
 #
 #	# Get ligand
 #	# THIS WORKS. DO NOT CHANGE
-		ligand = LigandBindingSite(pdb_code, chains)
-		ligand.get_residues_within_5A()
-		ligand.write_residue_output()
-		pdb_editor.edit_bfactor_ligand_binding_pocket()
+	#	ligand = LigandBindingSite(pdb_code, chains)
+	#	ligand.get_residues_within_5A()
+	#	ligand.write_residue_output()
+	#	pdb_editor.edit_bfactor_ligand_binding_pocket()
 #
 #
 ## 	# Find pockets 
 ##	# THIS WORKS. DO NOT CHANGE
-		rosetta = Rosetta(pdb_code)
-		rosetta.find_pockets()
-		pdb_editor.edit_bfactor_pocket_residues()
+	#	rosetta = Rosetta(pdb_code)
+	#	rosetta.find_pockets()
+		pdb_editor.edit_bfactor_pocket_residues() 
+#
+#
+##	# Create Rosetta minimized structure for non-redundant monomers in the structure
+##	# This will be used for ddG monomer
+		preprocessor = PDBPreProcessor(pdb_code, target_finder_mode=False)
+		preprocessor.process()
+		number_of_structures, chains, minimum_chains = preprocessor.count_structures_in_asymmetric_unit()
 #
 #
 ##	# Make 'mutants_list' file for ddg_monomer
 ##	# THIS WORKS. DO NOT CHANGE
-	#	ListMaker = MutantListMaker(pdb_code)
-	#	ListMaker.generate_mutant_list(pocketres=True, lpocket=True, SurfRes=True)
+		ListMaker1 = MutantListMaker(pdb_code, chains)
+#		ListMaker.generate_mutant_list(lpocket=True, SurfRes=True)
+		ListMaker1.generate_mutant_list(pocketres=True, lpocket=True, SurfRes=True)
 #		ListMaker.generate_mutant_list(pocketres=True, lpocket=True)
+		ListMaker2 = MutantListMaker(pdb_code, minimum_chains, asymmetric_unit=True)
+		ListMaker2.filter_mutant_list(minimum_chains)
+#
 #
 ##	# Calculate ddG
 ##	# THIS WORKS. DO NOT CHANGE
-	#	ddgMonomer = DDGMonomer(pdb_code)
-	#	ddgMonomer.get_targets(5.5)
+		ddgMonomer = DDGMonomer(pdb_code, minimum_chains)
+		ddgMonomer.get_targets(5.5)
 #
 ##	# Write output csv
 ##	# THIS WORKS. DO NOT CHANGE
-	#	mutation_list_generator = MutationListGenerator(sequence_annotations, dna_sequences, aln_diff, pdb_code=pdb_code)
-	#	mutation_list_generator.write_csv_output(aln_diff)
+		mutation_list_generator = MutationListGenerator(sequence_annotations, dna_sequences, aln_diff, pdb_code=pdb_code)
+		mutation_list_generator.write_csv_output(aln_diff)
 
 
 	

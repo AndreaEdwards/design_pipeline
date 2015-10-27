@@ -342,10 +342,25 @@ class PDBPreProcessor:
 	### There is a problem here. clean_pdb.py removes hetatms. These hetatms need to remain in place for the LigandBinidngSite to work.
 	### Use pdb_renumber.py --preserve input.pdb output.pdb for LigandBindingSite
 
-	def __init__(self, pdb_code):
+	def __init__(self, pdb_code, target_finder_mode = True):
 		self.filename = pdb_code
 		self.file_path = ''
 		self.chains = ''
+		self.complex_unit_count = { 	1: "mono",
+										2: "di",
+										3: "tri",
+										4: "quatro",
+										5: "penta",
+										6: "hexa",
+										7: "hepta",
+										8: "octa",
+										9: "nona",
+										10: "deca",
+										11: "undeca",
+										12: "dodeca"
+									}
+		self.minimum_chains = ''
+		self.target_finder_mode = target_finder_mode
 
 	def _get_file_path(self, cleaned=False, minimized=False, test_minimized=False, mmCIF=False):
 		self.file_path = ''
@@ -357,33 +372,49 @@ class PDBPreProcessor:
 				if self.filename == file_handlers.get_file_name(cif_file).split('.')[0]:
 					self.file_path = cif_file
 		else:
-			pdb_files = file_handlers.find_files(file_paths, 'pdb')
-			if cleaned == True:
-				for pdb_file in pdb_files:
-					if (self.filename + '_' + self.chains) == file_handlers.get_file_name(pdb_file).split('.')[0]:
-						self.file_path = pdb_file
-			elif minimized == True:
-				for pdb_file in pdb_files:
-					if (self.filename + '_' + self.chains + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-						self.file_path = pdb_file
-			elif test_minimized == True:
-				for pdb_file in pdb_files:
-					if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
-						self.file_path = pdb_file
+			if self.target_finder_mode == True:
+				pdb_files = file_handlers.find_files(file_paths, 'pdb')
+				if cleaned == True:
+					for pdb_file in pdb_files:
+						if (self.filename + '_' + self.chains) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+							self.file_path = pdb_file
+				elif minimized == True:
+					for pdb_file in pdb_files:
+						if (self.filename + '_' + self.chains + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+							self.file_path = pdb_file
+				elif test_minimized == True:
+					for pdb_file in pdb_files:
+						if (self.filename + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+							self.file_path = pdb_file
+				else:
+					for pdb_file in pdb_files:
+						if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+							self.file_path = pdb_file
 			else:
-				for pdb_file in pdb_files:
-					if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
-						self.file_path = pdb_file
+				pdb_files = file_handlers.find_files(file_paths, 'pdb')
+				if cleaned == True:
+					for pdb_file in pdb_files:
+						if (self.filename + '_' + self.minimum_chains) == file_handlers.get_file_name(pdb_file).split('.')[0]:
+							self.file_path = pdb_file
+				elif minimized == True:
+					for pdb_file in pdb_files:
+						if (self.filename + '_' + self.minimum_chains + '_0001') == file_handlers.get_file_name(pdb_file).split('.')[0]:
+							self.file_path = pdb_file
+				else:
+					for pdb_file in pdb_files:
+						if self.filename == file_handlers.get_file_name(pdb_file).split('.')[0]:
+							self.file_path = pdb_file
+
 
 	def count_structures_in_asymmetric_unit(self):
 		header_parser = HeaderParser(self.filename)
 		header = header_parser.get_header_dict()
-		#print header
 		number_of_structures = len(header['biomoltrans'])
 		#print header['biomoltrans']['1']
 		self.chains = ''.join(header['biomoltrans']['1'][0])
-		print "There are %s structures in the asymmetric unit. Chains %s are suficient to represent the asymmetric unit." % (str(number_of_structures), self.chains)
-		return number_of_structures, self.chains
+		self.minimum_chains = header['biomoltrans']['1'][0][0]
+		print "There are %s structures in the asymmetric unit. Chains %s are suficient to represent the asymmetric unit." % (str(number_of_structures), self.minimum_chains)
+		return number_of_structures, self.chains, self.minimum_chains
 
 	def get_experiment_type(self):
 		header_parser = HeaderParser(self.filename)
@@ -411,16 +442,47 @@ class PDBPreProcessor:
 		print "This model was determined to %s Angstrom resolution" % resolution
 		return resolution
 
+	def get_complex_info(self):
+		header_parser = HeaderParser(self.filename)
+		header = header_parser.get_header_dict()
+		non_redundant_polymers = {}
+		try:
+			chains = header['biomoltrans']['1'][0]
+			for chain in chains:
+				polymer = str(header[chain])
+				if polymer not in non_redundant_polymers:
+					non_redundant_polymers[polymer] = [chain]
+				else:
+					non_redundant_polymers[polymer].append(chain)
+		except Exception, e:
+			pass
+		complex_type = "homo" if len(non_redundant_polymers) == 1 else "hetero"
+		print "non_redundant_polymers:", non_redundant_polymers
+			
+
 	def _run_clean_pdb(self):
 		self._get_file_path()
-		cmd = ['python ~/rosetta/tools/protein_tools/scripts/clean_pdb.py ' + self.file_path + ' ' + self.chains]
-		subprocess.call(cmd, shell=True)
+		print self.file_path
+		if self.target_finder_mode == True:
+			cmd = ['python ~/rosetta/tools/protein_tools/scripts/clean_pdb.py ' + self.file_path + ' ' + self.chains]
+			subprocess.call(cmd, shell=True)
+		else:
+			
+			cmd = ['python ~/rosetta/tools/protein_tools/scripts/clean_pdb.py ' + self.file_path + ' ' + self.minimum_chains]
+			subprocess.call(cmd, shell=True)
+
 
 	def _run_rosetta_minimizer(self):
-		self._get_file_path(cleaned=True)
-		print self.file_path
-		cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + self.file_path + ' -ignore_unrecognized_res']
-		subprocess.call(cmd, shell=True)
+		if self.target_finder_mode == True:
+			self._get_file_path(cleaned=True)
+			cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + self.file_path + ' -ignore_unrecognized_res']
+			subprocess.call(cmd, shell=True)
+		else:
+			self._get_file_path(cleaned=True)
+			print "now I'm at the last step and I'm using file: ", self.file_path
+			cmd = ['~/rosetta/main/source/bin/minimize.static.macosclangrelease -jd2 -s ' + self.file_path + ' -ignore_unrecognized_res']
+			subprocess.call(cmd, shell=True)
+
 
 	def _rename_minimized_structure(self):
 		self._get_file_path(minimized=True)
@@ -445,13 +507,22 @@ class PDBPreProcessor:
 			return True
 
 	def process(self):
-		number_of_structures, self.chains = self.count_structures_in_asymmetric_unit()
-		if not self._is_clean():
+		# target_finder_mode specifies whether or not we are looking for target residues.
+		if self.target_finder_mode == True:
+			number_of_structures, chains, minimum_chains = self.count_structures_in_asymmetric_unit()
+			if not self._is_clean():
+				self._run_clean_pdb()
+			if not self._is_minimized():
+				self._run_rosetta_minimizer()
+				self._rename_minimized_structure()	
+			return number_of_structures
+		# if target_finder_mode == False then we have found the targets and are now at the ddG monomer step.
+		# that means we need to separate each non-redundant monomer from the structure and minimize it for subsequent ddG monomer.
+		else:
+			print "Starting here..."
+			self.count_structures_in_asymmetric_unit()
 			self._run_clean_pdb()
-		if not self._is_minimized():
 			self._run_rosetta_minimizer()
-			self._rename_minimized_structure()	
-		return number_of_structures
 
 	def _is_pdb_downloaded(self):
 		self._get_file_path()
@@ -486,7 +557,7 @@ class LigandBindingSite:
 		self.ligand_centroid = []
 		self.ligands = []
 		self.ligand_binding_pocket =[]
-		self.ignore = ['MN ', 'DOD', 'SO4', 'HOH']
+		self.ignore = ['MN ', 'DOD', 'SO4', 'HOH', 'CL ', ' NA', 'NA ']
 		self.ligand_chain = []
 		self.all_ligand_atoms = []
 
@@ -905,8 +976,10 @@ class Rosetta:
 
 
 class MutantListMaker:
-	def __init__(self, pdb_code):
+	def __init__(self, pdb_code, chains, asymmetric_unit=False):
 		self.handles = []
+		self.chains = chains
+		self.asymmetric_unit = asymmetric_unit
 		self.filename = pdb_code
 		#self.resnums = set([])
 		self.codes = {	'GLY' : 'G', 'PRO' : 'P', 'ALA' : 'A', 'VAL' : 'V', 'LEU' : 'L', 
@@ -927,7 +1000,7 @@ class MutantListMaker:
 		Data.close()
 		return data
 
-	def _get_filepath(self, handle, data_file=False, pdb_file=False):
+	def _get_filepath(self, handle, data_file=False, raw_pdb_file=False, pdb_file=False, mutant_list_file=False):
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
 		if data_file == True:
@@ -940,54 +1013,88 @@ class MutantListMaker:
 			for path in files:
 				if (self.filename + '_0001') == file_handlers.get_file_name(path).split('.')[0]:
 					return path
+		elif raw_pdb_file == True:
+			files = file_handlers.find_files(file_paths, 'pdb')
+			for path in files:
+				if (self.filename) == file_handlers.get_file_name(path).split('.')[0]:
+					return path
+		elif mutant_list_file == True:
+			files = file_handlers.find_files(file_paths, 'txt')
+			for path in files:
+				if (self.filename + "_mutant_list") == file_handlers.get_file_name(path).split('.')[0]:
+					return path
 		else:
 			print "Specify file type"
 
+	def _get_number_offset(self, handle):
+		offset_dict = {}
+		
+		# Get pdb data
+		minimized_filepath = self._get_filepath(handle, pdb_file=True)
+		minimized_pdb_lines = self._open_file(minimized_filepath)
+		raw_filepath = self._get_filepath(handle, raw_pdb_file=True)
+		raw_pdb_lines = self._open_file(raw_filepath)
+
+		for chain in self.chains:
+			offset_dict[chain] = {}
+			
+			# Get residue numbers for minimized structure
+			minimized_resnums = set([])
+			for line in minimized_pdb_lines:
+				if line[0:6] == "ATOM  " and line[21:22] == chain:
+					minimized_resnums.add((line[17:20].strip(), line[21:22], int(line[22:26])))
+			minimized = list(minimized_resnums)
+			minimized_sorted = sorted(minimized, key=itemgetter(2))
+			
+			# Get residue numbers for raw pdb
+			raw_pdb_resnums = set([])
+			for line in raw_pdb_lines:
+				if line[0:6] == "ATOM  " and line[21:22] == chain:
+					raw_pdb_resnums.add((line[17:20].strip(), line[21:22], int(line[22:26])))
+			raw_pdb = list(raw_pdb_resnums)
+			raw_sorted = sorted(raw_pdb, key=itemgetter(2))
+			
+			# Walk the arrays to find positions where offset difference in numbering changes (i.e. chain breaks)
+			# If looking at ligand binding pocket, set offset to 0
+			for i in range(len(raw_pdb)):
+				if raw_sorted[i][0] == minimized_sorted[i][0]:
+					offset = raw_sorted[i][2] - minimized_sorted[i][2]
+					offset_dict[chain][raw_sorted[i][2]] = offset
+		self.offset_dict = offset_dict
+		#print "ligand binding pocket residue numbering offset: ", self.offset_dict
+		return offset_dict
 
 	def _get_resmapping(self):
 		res_mapping = []
 		for handle in self.handles:
+			#print "self.asymmetric_unit flag set to: ", self.asymmetric_unit
+			if handle == '_lpocket':
+				self._get_number_offset(handle)
 			filepath = self._get_filepath(handle, data_file=True)
+			print  "getting targetted residues from: ", filepath
 			data = self._open_file(filepath)
-			for line in data:
+			for line in data:	
 				split_line = line.split('\t') # New version
 				if split_line[0] in self.codes:
 					res_name = self.codes[split_line[0]]
 					chain = split_line[1]
-					resnum = split_line[2]
+					if handle == '_lpocket':
+						if chain in self.offset_dict:
+							resnum = int(split_line[2]) - self.offset_dict[chain][int(split_line[2])]
+						#if self.asymmetric_unit == True:
+						#	if chain in self.offset_dict:
+						#		resnum = int(split_line[2]) - self.offset_dict[chain][int(split_line[2])]
+						#else:
+						#	resnum = int(split_line[2]) - self.offset_dict[chain][int(split_line[2])]
+					else:
+						resnum = split_line[2]
 					res_mapping.append((chain, res_name, resnum))
 		return res_mapping
-
-	#def _get_resnums(self):
-	#	resnums = set([]) 
-	#	for handle in self.handles:
-	#		filepath = self._get_filepath(handle, data_file=True)
-	#		data = self._open_file(filepath)
-	#		for line in data:
-	#			resnum = line.split('\t')[2]
-	#			resnums.add(resnum)
-	#	self.resnums = resnums
-	#	return resnums
-
-	#def _get_resmapping(self):
-	#	res_mapping = []
-	#	filepath = self._get_filepath('', pdb_file=True)
-	#	p = PDBParser(QUIET=True)
-	#	structure = p.get_structure('protein', filepath)
-	#	for chain in structure.get_chains():
-	#		chain = structure[0][chain.id]
-	#		for residue in chain.get_residues():
-	#			if str(residue.id[1]) in self.resnums:
-	#				if residue.resname not in amino_acids.longer_names.keys():
-	#					pass
-	#				else:
-	#					res_mapping.append((chain.id, self.codes[residue.resname], residue.id[1]))
-	#	return res_mapping
 
 	def _get_mutants(self, res_mapping):
 		mutants = {}
 		for mapping in res_mapping:
-			resid = set(mapping[0])
+			resid = mapping[1]
 			aminoacids = set(self.inverse_codes.keys())
 			mutant_list = list(aminoacids.difference(resid))
 			mutants[mapping] = mutant_list
@@ -1005,45 +1112,65 @@ class MutantListMaker:
 		if pocketres == True and lpocket == True and SurfRes == True:
 			self.handles = ['_pocketres', '_lpocket', '_SurfRes']
 			res_mapping = self._get_resmapping()
-			#self._get_resnums()
-		if pocketres == True and lpocket == True:
+		if pocketres == True and lpocket == True and SurfRes == False:
 			self.handles = ['_pocketres', '_lpocket']
 			res_mapping = self._get_resmapping()
+		if pocketres == False and lpocket == True and SurfRes == True:
+			self.handles = ['_SurfRes', '_lpocket']
+			res_mapping = self._get_resmapping()
 			#self._get_resnums()
-		#self._get_resmapping()
 		mutants = self._get_mutants(res_mapping)
 		self._write_mutant_list(mutants, '_mutant_list.txt')
 
+	def filter_mutant_list(self, minimum_chains):
+		out_file = os.getcwd() + '/' + self.filename + '_filtered_mutant_list.txt'
+		out = open(out_file, 'w')
+		filepath = self._get_filepath(None, mutant_list_file=True)
+		data = self._open_file(filepath)
+		for chain in minimum_chains:
+			for line in data:
+				if line.split(' ')[0] == chain:
+					split_line = line.split(' ')
+					chain = split_line[0]
+					res_name = split_line[1]
+					resnum = split_line[2]
+					mutant = split_line[3]
+					out.write(chain + ' ' + res_name + ' ' + resnum + ' ' + mutant)
+		out.close()
 
 class DDGMonomer:
-	def __init__(self, pdb):
+	def __init__(self, pdb, minimum_chains):
 		self.filename = pdb
+		self.minimum_chains = minimum_chains
 
-	def _get_filepath(self, data_file=False, pdb_file=False):
+	def _get_filepath(self, data_file=False, pdb_file=False, chain=''):
 		file_handlers = FileHandlers()
 		file_paths = file_handlers.search_directory()
 		if data_file == True:
 			files = file_handlers.find_files(file_paths, 'txt')
 			for path in files:
-				if (self.filename + '_mutant_list') == file_handlers.get_file_name(path).split('.')[0]:
+				if (self.filename + '_filtered_mutant_list') == file_handlers.get_file_name(path).split('.')[0]:
 					return path
 		elif pdb_file == True:
 			files = file_handlers.find_files(file_paths, 'pdb')
 			for path in files:
-				if (self.filename + '_0001') == file_handlers.get_file_name(path).split('.')[0]:
+				if (self.filename + '_' + chain + '_0001') == file_handlers.get_file_name(path).split('.')[0]:
 					return path
 		else:
 			print "Specify file type"
 
 	def _run_ddg_monomer(self, pdb_filepath, mutant_list, threshold):
-		print "Running ddg_monomer..."
+		print "Running ddg_monomer on: %s with mutant list: %s" % ( pdb_filepath, mutant_list )
 		cmd = ['~/rosetta/main/source/bin/pmut_scan_parallel.static.macosclangrelease -jd2 -s ' + pdb_filepath + ' -ex1 -ex2 -extrachi_cutoff 1 -use_input_sc -ignore_unrecognized_res -no_his_his_pairE -multi_cool_annealer 10 -mute basic core -mutants_list ' + mutant_list + ' -DDG_cutoff ' + threshold + ' | grep PointMut|grep -v "go()"|grep -v "main()" > ' + self.filename + '_mutants.out']
 		subprocess.call(cmd, shell=True)
 
 	def get_targets(self, threshold):
 		mutant_list = self._get_filepath(data_file=True)
-		pdb_filepath = self._get_filepath(pdb_file=True)
-		self._run_ddg_monomer(pdb_filepath, mutant_list, str(threshold))
+		#print mutant_list
+		for chain in self.minimum_chains:
+			pdb_filepath = self._get_filepath(pdb_file=True, chain=chain)
+			#print pdb_filepath
+			self._run_ddg_monomer(pdb_filepath, mutant_list, str(threshold))
 
 
 class SurfaceResidues:
@@ -1216,6 +1343,7 @@ class EditPDB:
 		self.chains = set([])
 		self.server_mode = server_mode
 		self.pdb_dir = os.getcwd() + '/results/' ## running from server
+		self.offset_dict = {}
 
 	def _get_pdb(self, modres=False):
 		pdb = ''
@@ -1250,6 +1378,7 @@ class EditPDB:
 					minimized_resnums.add((line[17:20].strip(), line[21:22], int(line[22:26])))
 			minimized = list(minimized_resnums)
 			minimized_sorted = sorted(minimized, key=itemgetter(2))
+			#print "minimized sorted:", minimized_sorted
 			
 			# Get residue numbers for raw pdb
 			raw_pdb_lines = self._get_pdb()
@@ -1259,6 +1388,7 @@ class EditPDB:
 					raw_pdb_resnums.add((line[17:20].strip(), line[21:22], int(line[22:26])))
 			raw_pdb = list(raw_pdb_resnums)
 			raw_sorted = sorted(raw_pdb, key=itemgetter(2))
+			#print "raw sorted:", raw_sorted
 			
 			# Walk the arrays to find positions where offset difference in numbering changes (i.e. chain breaks)
 			# If looking at ligand binding pocket, set offset to 0
@@ -1269,6 +1399,7 @@ class EditPDB:
 					if raw_sorted[i][0] == minimized_sorted[i][0]:
 						offset = raw_sorted[i][2] - minimized_sorted[i][2]
 						offset_dict[chain][raw_sorted[i][2]] = offset
+		self.offset_dict = offset_dict
 		return offset_dict
 
 	def _get_data(self, file_tag):
